@@ -22,6 +22,8 @@ Phase 10A adds an offline Alpaca market-data skeleton for future request shaping
 
 Phase 10B adds an offline FMP float/reference skeleton for future request shaping and fixture parsing. Runtime still defaults to mock, real FMP integration is not active, and tests use fixtures only. FMP is planned for float/reference data, not intraday market movement; future scanner-ready live candidates will likely compose Alpaca market data with FMP float/reference data. Do not commit credentials.
 
+Phase 10C adds offline fixture-based candidate composition for future live-provider work. Runtime still defaults to mock, Alpaca and FMP are not active runtime providers, and composition currently uses offline fixtures/tests only. Future live scanner-ready candidates will likely require Alpaca market data plus FMP float/reference data. Do not commit credentials.
+
 ## Development
 
 Install the local development dependencies with:
