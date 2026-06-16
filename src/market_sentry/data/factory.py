@@ -21,10 +21,10 @@ def create_market_data_provider(config: AppConfig) -> MarketDataProvider:
 
     if provider == "alpaca":
         raise ProviderConfigurationError(
-            "Alpaca provider is a future placeholder; live API implementation "
+            "Alpaca provider is a future placeholder. Live API implementation "
             "is not present yet."
         )
 
     raise ProviderConfigurationError(
-        f"Unknown market data provider '{provider}'. Supported providers: mock."
+        f"Unknown market data provider: {provider}"
     )

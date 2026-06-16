@@ -127,10 +127,11 @@ def test_voice_ready_alert_messages_avoid_trading_advice_language() -> None:
 
 
 def test_main_prints_mock_scanner_report(capsys) -> None:
-    main([])
+    exit_code = main([])
 
     output = capsys.readouterr().out
 
+    assert exit_code == 0
     assert "Market Sentry" in output
     assert "Qualified Results" in output
     assert "Rejected Results" in output
@@ -156,7 +157,7 @@ def test_loop_mode_runs_finite_iterations_without_long_sleep(capsys) -> None:
     sleeps: list[float] = []
     now = datetime(2026, 6, 16, 14, 30, tzinfo=timezone.utc)
 
-    main(
+    exit_code = main(
         ["--loop", "--interval", "30"],
         sleep_fn=sleeps.append,
         now_fn=lambda: now,
@@ -165,6 +166,7 @@ def test_loop_mode_runs_finite_iterations_without_long_sleep(capsys) -> None:
 
     output = capsys.readouterr().out
 
+    assert exit_code == 0
     assert output.count("Market Sentry") == 2
     assert "Scan Iteration: 1" in output
     assert "Scan Iteration: 2" in output
@@ -175,7 +177,7 @@ def test_loop_mode_clamps_interval_before_sleeping(capsys) -> None:
     sleeps: list[float] = []
     now = datetime(2026, 6, 16, 14, 30, tzinfo=timezone.utc)
 
-    main(
+    exit_code = main(
         ["--loop", "--interval", "1"],
         sleep_fn=sleeps.append,
         now_fn=lambda: now,
@@ -184,6 +186,7 @@ def test_loop_mode_clamps_interval_before_sleeping(capsys) -> None:
 
     capsys.readouterr()
 
+    assert exit_code == 0
     assert sleeps == [5.0]
 
 
@@ -193,7 +196,7 @@ def test_keyboard_interrupt_exits_loop_cleanly(capsys) -> None:
     def interrupting_sleep(_seconds: float) -> None:
         raise KeyboardInterrupt
 
-    main(
+    exit_code = main(
         ["--loop", "--interval", "5"],
         sleep_fn=interrupting_sleep,
         now_fn=lambda: now,
@@ -201,6 +204,7 @@ def test_keyboard_interrupt_exits_loop_cleanly(capsys) -> None:
 
     output = capsys.readouterr().out
 
+    assert exit_code == 0
     assert "Market Sentry loop stopped." in output
     assert "Traceback" not in output
 
@@ -209,7 +213,7 @@ def test_loop_speak_uses_speaker_path_and_cooldowns_suppress_repeats(capsys) -> 
     speaker = RecordingSpeaker()
     now = datetime(2026, 6, 16, 14, 30, tzinfo=timezone.utc)
 
-    main(
+    exit_code = main(
         ["--loop", "--interval", "5", "--speak"],
         speaker=speaker,
         sleep_fn=lambda _seconds: None,
@@ -219,6 +223,7 @@ def test_loop_speak_uses_speaker_path_and_cooldowns_suppress_repeats(capsys) -> 
 
     output = capsys.readouterr().out
 
+    assert exit_code == 0
     assert "Scan Iteration: 1" in output
     assert "Scan Iteration: 2" in output
     assert speaker.calls == 2
@@ -235,7 +240,7 @@ def test_loop_speak_allows_alerts_after_cooldown_expires(capsys) -> None:
         ]
     )
 
-    main(
+    exit_code = main(
         ["--loop", "--interval", "5", "--speak"],
         speaker=speaker,
         sleep_fn=lambda _seconds: None,
@@ -245,6 +250,7 @@ def test_loop_speak_allows_alerts_after_cooldown_expires(capsys) -> None:
 
     capsys.readouterr()
 
+    assert exit_code == 0
     assert speaker.calls == 2
     assert len(speaker.messages) == 10
 
@@ -253,7 +259,7 @@ def test_loop_no_speak_does_not_use_speaker_path(capsys) -> None:
     speaker = RecordingSpeaker()
     now = datetime(2026, 6, 16, 14, 30, tzinfo=timezone.utc)
 
-    main(
+    exit_code = main(
         ["--loop", "--interval", "5", "--no-speak"],
         speaker=speaker,
         sleep_fn=lambda _seconds: None,
@@ -263,6 +269,7 @@ def test_loop_no_speak_does_not_use_speaker_path(capsys) -> None:
 
     output = capsys.readouterr().out
 
+    assert exit_code == 0
     assert "Scan Iteration: 1" in output
     assert "Scan Iteration: 2" in output
     assert speaker.messages == []
@@ -272,9 +279,10 @@ def test_loop_no_speak_does_not_use_speaker_path(capsys) -> None:
 def test_cli_default_does_not_attempt_speech_playback(capsys) -> None:
     speaker = RecordingSpeaker()
 
-    main([], speaker=speaker)
+    exit_code = main([], speaker=speaker)
 
     output = capsys.readouterr().out
+    assert exit_code == 0
     assert "Market Sentry" in output
     assert "Voice-Ready Alerts" in output
     assert speaker.messages == []
@@ -283,9 +291,10 @@ def test_cli_default_does_not_attempt_speech_playback(capsys) -> None:
 def test_cli_no_speak_does_not_attempt_speech_playback(capsys) -> None:
     speaker = RecordingSpeaker()
 
-    main(["--no-speak"], speaker=speaker)
+    exit_code = main(["--no-speak"], speaker=speaker)
 
     output = capsys.readouterr().out
+    assert exit_code == 0
     assert "Market Sentry" in output
     assert "Voice-Ready Alerts" in output
     assert speaker.messages == []
@@ -294,9 +303,10 @@ def test_cli_no_speak_does_not_attempt_speech_playback(capsys) -> None:
 def test_cli_speak_routes_alert_messages_to_injected_speaker(capsys) -> None:
     speaker = RecordingSpeaker()
 
-    main(["--speak"], speaker=speaker)
+    exit_code = main(["--speak"], speaker=speaker)
 
     output = capsys.readouterr().out
+    assert exit_code == 0
     assert "Market Sentry" in output
     assert "Voice-Ready Alerts" in output
     assert speaker.messages
@@ -312,9 +322,10 @@ def test_report_prints_even_when_speech_playback_fails(capsys) -> None:
         )
     )
 
-    main(["--speak"], speaker=speaker)
+    exit_code = main(["--speak"], speaker=speaker)
 
     output = capsys.readouterr().out
+    assert exit_code == 0
     assert "Market Sentry" in output
     assert "Voice-Ready Alerts" in output
     assert "Voice playback unavailable: test failure" in output
@@ -324,7 +335,71 @@ def test_package_main_delegates_to_main() -> None:
     source = inspect.getsource(package_main)
 
     assert "from market_sentry.main import main" in source
-    assert "main()" in source
+    assert "SystemExit(main())" in source
+
+
+def test_runtime_explicit_mock_provider_works(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("MARKET_SENTRY_PROVIDER", "mock")
+
+    exit_code = main([])
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Market Sentry" in output
+    assert "Qualified Results" in output
+
+
+def test_runtime_alpaca_placeholder_fails_cleanly(monkeypatch, capsys) -> None:
+    speaker = RecordingSpeaker()
+    monkeypatch.setenv("MARKET_SENTRY_PROVIDER", "alpaca")
+
+    exit_code = main(["--speak"], speaker=speaker)
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert (
+        "Provider configuration error: Alpaca provider is a future placeholder. "
+        "Live API implementation is not present yet."
+    ) in output
+    assert "Market Sentry" not in output
+    assert "Traceback" not in output
+    assert speaker.calls == 0
+
+
+def test_runtime_unknown_provider_fails_cleanly(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("MARKET_SENTRY_PROVIDER", "bad_provider")
+
+    exit_code = main([])
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Provider configuration error: Unknown market data provider: bad_provider" in output
+    assert "Market Sentry" not in output
+    assert "Traceback" not in output
+
+
+def test_provider_error_does_not_enter_loop(monkeypatch, capsys) -> None:
+    sleeps: list[float] = []
+    speaker = RecordingSpeaker()
+    monkeypatch.setenv("MARKET_SENTRY_PROVIDER", "alpaca")
+
+    exit_code = main(
+        ["--loop", "--interval", "5", "--speak"],
+        speaker=speaker,
+        sleep_fn=sleeps.append,
+        max_iterations=2,
+    )
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Provider configuration error:" in output
+    assert "Scan Iteration:" not in output
+    assert sleeps == []
+    assert speaker.calls == 0
 
 
 def test_cli_runner_has_no_external_api_or_trading_behavior() -> None:

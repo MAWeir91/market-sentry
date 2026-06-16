@@ -16,6 +16,8 @@ Real data provider implementation is not present yet. Phase 9A documents the pla
 
 Phase 9B adds a provider configuration skeleton for future phases. `mock` is still the default and only functional provider. Placeholder environment variables exist for future Alpaca/FMP configuration, but real provider implementation is not present yet and secrets should never be committed.
 
+Runtime now uses the provider config/factory path internally. `MARKET_SENTRY_PROVIDER=mock` is supported and requires no credentials. `MARKET_SENTRY_PROVIDER=alpaca` is a placeholder and exits with a clear not-implemented message; real API implementation is still not present.
+
 ## Development
 
 Install the local development dependencies with:

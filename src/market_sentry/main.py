@@ -15,7 +15,12 @@ from market_sentry.alerts import (
     LocalTTSSpeaker,
     generate_alerts,
 )
-from market_sentry.data import MockMarketDataProvider
+from market_sentry.config import load_config
+from market_sentry.data.factory import (
+    ProviderConfigurationError,
+    create_market_data_provider,
+)
+from market_sentry.data.provider import MarketDataProvider
 from market_sentry.scanner import ScannerEngine, ScannerResult
 
 DEFAULT_INTERVAL_SECONDS = 30.0
@@ -157,13 +162,13 @@ def _format_scan_label(iteration: int, scan_time: datetime) -> str:
 
 def _run_scan(
     *,
+    provider: MarketDataProvider,
     speak: bool = False,
     speaker: AlertSpeaker | None = None,
     cooldown_manager: AlertCooldownManager | None = None,
     scan_time: datetime | None = None,
     scan_label: str | None = None,
 ) -> None:
-    provider = MockMarketDataProvider()
     candidates = provider.get_candidates()
     results = ScannerEngine().scan(candidates)
     display_alerts = generate_alerts(results)
@@ -188,6 +193,7 @@ def _run_scan(
 
 def run_loop(
     *,
+    provider: MarketDataProvider,
     interval_seconds: float,
     speak: bool = False,
     speaker: AlertSpeaker | None = None,
@@ -204,6 +210,7 @@ def run_loop(
         while max_iterations is None or iteration <= max_iterations:
             scan_time = now_fn()
             _run_scan(
+                provider=provider,
                 speak=speak,
                 speaker=speaker,
                 cooldown_manager=cooldown_manager if speak else None,
@@ -225,14 +232,22 @@ def main(
     sleep_fn=sleep,
     now_fn=_now_utc,
     max_iterations: int | None = None,
-) -> None:
+) -> int:
     """Run the local mock provider through the scanner and print a report."""
 
     args = parse_args(argv)
     interval_seconds = normalize_interval(args.interval)
 
+    try:
+        config = load_config()
+        provider = create_market_data_provider(config)
+    except ProviderConfigurationError as exc:
+        print(f"Provider configuration error: {exc}")
+        return 1
+
     if args.loop:
         run_loop(
+            provider=provider,
             interval_seconds=interval_seconds,
             speak=args.speak,
             speaker=speaker,
@@ -240,9 +255,10 @@ def main(
             now_fn=now_fn,
             max_iterations=max_iterations,
         )
-        return
+        return 0
 
-    _run_scan(speak=args.speak, speaker=speaker)
+    _run_scan(provider=provider, speak=args.speak, speaker=speaker)
+    return 0
 
 
 if __name__ == "__main__":
