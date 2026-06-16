@@ -26,6 +26,8 @@ Phase 10C adds offline fixture-based candidate composition for future live-provi
 
 Phase 10D adds an offline fixture-composed provider for future-provider testing. The default runtime remains mock, but `MARKET_SENTRY_PROVIDER=fixture` can run static Alpaca/FMP-style fixtures through the composer without credentials or network calls. Phase 10E updates the report header so it reflects the selected provider, such as `Mock Scanner Report` or `Fixture Scanner Report`. Alpaca/FMP live providers are still not active. Trading/order functionality remains out of scope.
 
+Phase 11A adds a generic HTTP transport skeleton for future live-provider phases. Current runtime modes still require no credentials: mock remains the default, fixture remains offline/static, and Alpaca/FMP live providers are not active. Do not commit secrets. Trading/order functionality remains out of scope.
+
 ## Development
 
 Install the local development dependencies with:
