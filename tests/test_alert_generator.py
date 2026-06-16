@@ -20,6 +20,8 @@ def result_for(
     gain: float,
     relative_volume: float,
     daily_volume: int,
+    high_of_day: float | None = None,
+    change_15m_pct: float | None = None,
 ):
     return evaluate_candidate(
         StockCandidate(
@@ -29,6 +31,8 @@ def result_for(
             daily_gain_percent=gain,
             relative_volume=relative_volume,
             daily_volume=daily_volume,
+            high_of_day=high_of_day,
+            change_15m_pct=change_15m_pct,
         )
     )
 
@@ -93,7 +97,14 @@ def test_tier_4_maps_to_tier_4_event_type() -> None:
 
 
 def test_high_score_results_create_high_score_alert() -> None:
-    result = result_for("XTRM", 118.0, 12.5, 6_400_000)
+    result = result_for(
+        "XTRM",
+        118.0,
+        12.5,
+        6_400_000,
+        high_of_day=5.05,
+        change_15m_pct=18.0,
+    )
 
     alerts = generate_alerts([result])
 
@@ -105,7 +116,14 @@ def test_high_score_results_create_high_score_alert() -> None:
 
 
 def test_generator_applies_cooldowns_with_injected_timestamps() -> None:
-    result = result_for("XTRM", 118.0, 12.5, 6_400_000)
+    result = result_for(
+        "XTRM",
+        118.0,
+        12.5,
+        6_400_000,
+        high_of_day=5.05,
+        change_15m_pct=18.0,
+    )
     manager = AlertCooldownManager()
     now = datetime(2026, 1, 1, 9, 30, tzinfo=timezone.utc)
 

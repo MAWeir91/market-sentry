@@ -22,6 +22,8 @@ _MOCK_CANDIDATES: tuple[StockCandidate, ...] = (
         daily_gain_percent=31.0,
         relative_volume=3.8,
         daily_volume=1_400_000,
+        high_of_day=4.95,
+        change_15m_pct=8.2,
     ),
     StockCandidate(
         symbol="MRUN",
@@ -30,6 +32,8 @@ _MOCK_CANDIDATES: tuple[StockCandidate, ...] = (
         daily_gain_percent=68.0,
         relative_volume=6.2,
         daily_volume=2_800_000,
+        high_of_day=8.10,
+        change_15m_pct=3.1,
     ),
     StockCandidate(
         symbol="XTRM",
@@ -38,6 +42,8 @@ _MOCK_CANDIDATES: tuple[StockCandidate, ...] = (
         daily_gain_percent=118.0,
         relative_volume=12.5,
         daily_volume=6_400_000,
+        high_of_day=11.55,
+        change_15m_pct=14.8,
     ),
     StockCandidate(
         symbol="LOWP",
@@ -46,6 +52,8 @@ _MOCK_CANDIDATES: tuple[StockCandidate, ...] = (
         daily_gain_percent=22.0,
         relative_volume=3.1,
         daily_volume=900_000,
+        high_of_day=0.24,
+        change_15m_pct=-4.0,
     ),
     StockCandidate(
         symbol="SLOW",
@@ -54,6 +62,8 @@ _MOCK_CANDIDATES: tuple[StockCandidate, ...] = (
         daily_gain_percent=4.5,
         relative_volume=1.2,
         daily_volume=240_000,
+        high_of_day=3.80,
+        change_15m_pct=-1.5,
     ),
 )
 

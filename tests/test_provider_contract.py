@@ -52,6 +52,29 @@ def test_scanner_engine_can_evaluate_provider_candidates() -> None:
     }
 
 
+def test_mock_provider_includes_phase_7_optional_metrics() -> None:
+    candidates = MockMarketDataProvider().get_candidates()
+
+    assert any(candidate.rotation is not None for candidate in candidates)
+    assert any(
+        candidate.rotation is not None and candidate.rotation >= 4.0
+        for candidate in candidates
+    )
+    assert any(
+        candidate.distance_from_high_pct is not None
+        and candidate.distance_from_high_pct <= 2.0
+        for candidate in candidates
+    )
+    assert any(
+        candidate.change_15m_pct is not None and candidate.change_15m_pct >= 8.0
+        for candidate in candidates
+    )
+    assert any(
+        candidate.high_of_day is None and candidate.change_15m_pct is None
+        for candidate in candidates
+    )
+
+
 def test_mock_provider_has_no_external_service_dependencies() -> None:
     source = inspect.getsource(mock_provider)
     tree = ast.parse(source)

@@ -39,6 +39,26 @@ class StockCandidate:
     daily_gain_percent: float
     relative_volume: float
     daily_volume: int
+    high_of_day: float | None = None
+    change_15m_pct: float | None = None
+
+    @property
+    def rotation(self) -> float | None:
+        """Return how many times the float has traded today."""
+
+        if self.float_shares <= 0 or self.daily_volume < 0:
+            return None
+        return self.daily_volume / self.float_shares
+
+    @property
+    def distance_from_high_pct(self) -> float | None:
+        """Return non-negative percent distance below high of day."""
+
+        if self.high_of_day is None or self.high_of_day <= 0:
+            return None
+        if self.price >= self.high_of_day:
+            return 0.0
+        return ((self.high_of_day - self.price) / self.high_of_day) * 100.0
 
 
 @dataclass(frozen=True)

@@ -21,6 +21,26 @@ def format_share_count(value: int) -> str:
     return str(value)
 
 
+def _format_optional_price(value: float | None) -> str:
+    if value is None or value <= 0:
+        return "N/A"
+    return f"${value:.2f}"
+
+
+def _format_optional_percent(value: float | None, *, signed: bool = False) -> str:
+    if value is None:
+        return "N/A"
+    if signed and value > 0:
+        return f"+{value:.1f}%"
+    return f"{value:.1f}%"
+
+
+def _format_optional_rotation(value: float | None) -> str:
+    if value is None:
+        return "N/A"
+    return f"{value:.1f}x"
+
+
 def _format_result(result: ScannerResult) -> list[str]:
     candidate = result.candidate
     tier_label = result.tier.label if result.tier is not None else "None"
@@ -33,6 +53,12 @@ def _format_result(result: ScannerResult) -> list[str]:
             f"RelVol: {candidate.relative_volume:.1f}x | "
             f"Float: {format_share_count(candidate.float_shares)} | "
             f"Volume: {format_share_count(candidate.daily_volume)}"
+        ),
+        (
+            f"  Rotation: {_format_optional_rotation(candidate.rotation)} | "
+            f"15m: {_format_optional_percent(candidate.change_15m_pct, signed=True)} | "
+            f"HOD: {_format_optional_price(candidate.high_of_day)} | "
+            f"HOD Dist: {_format_optional_percent(candidate.distance_from_high_pct)}"
         ),
         "  Reasons:",
     ]

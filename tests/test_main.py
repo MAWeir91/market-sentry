@@ -48,6 +48,16 @@ def test_render_report_includes_meaningful_scanner_content() -> None:
     assert "12.5x" in report
     assert "1.3M" in report
     assert "6.4M" in report
+    assert "Rotation:" in report
+    assert "15m:" in report
+    assert "HOD:" in report
+    assert "HOD Dist:" in report
+    assert "Rotation: 4.9x" in report
+    assert "15m: +14.8%" in report
+    assert "HOD: $11.55" in report
+    assert "HOD Dist: 1.3%" in report
+    assert "15m: N/A" in report
+    assert "HOD: N/A" in report
     assert "PRICE_BELOW_MIN" in report
     assert "[PASS]" in report
     assert "[FAIL]" in report

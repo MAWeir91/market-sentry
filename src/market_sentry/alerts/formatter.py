@@ -26,6 +26,20 @@ def _activity_label(event_type: AlertEventType) -> str:
     return labels[event_type]
 
 
+def _context_parts(scanner_result: ScannerResult) -> list[str]:
+    candidate = scanner_result.candidate
+    parts: list[str] = []
+
+    if candidate.rotation is not None:
+        parts.append(f"Rotation {candidate.rotation:.1f} times float.")
+    if candidate.change_15m_pct is not None and candidate.change_15m_pct > 0:
+        parts.append(
+            f"Fifteen-minute change positive {candidate.change_15m_pct:.1f} percent."
+        )
+
+    return parts
+
+
 def format_alert_message(
     scanner_result: ScannerResult,
     event_type: AlertEventType,
@@ -34,6 +48,9 @@ def format_alert_message(
 
     candidate = scanner_result.candidate
     activity = _activity_label(event_type)
+    context = " ".join(_context_parts(scanner_result))
+    context_suffix = f" {context}" if context else ""
+    context_before_score = f"{context} " if context else ""
 
     if event_type is AlertEventType.HIGH_SCORE:
         return (
@@ -41,6 +58,7 @@ def format_alert_message(
             f"Score {scanner_result.score:.1f}. "
             f"Up {candidate.daily_gain_percent:.1f} percent with "
             f"{candidate.relative_volume:.1f} relative volume."
+            f"{context_suffix}"
         )
 
     return (
@@ -48,5 +66,6 @@ def format_alert_message(
         f"Up {candidate.daily_gain_percent:.1f} percent with "
         f"{candidate.relative_volume:.1f} relative volume. "
         f"Float {_format_float_words(candidate.float_shares)}. "
+        f"{context_before_score}"
         f"Score {scanner_result.score:.1f}."
     )
