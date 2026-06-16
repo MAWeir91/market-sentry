@@ -18,6 +18,8 @@ Phase 9B adds a provider configuration skeleton for future phases. `mock` is sti
 
 Runtime now uses the provider config/factory path internally. `MARKET_SENTRY_PROVIDER=mock` is supported and requires no credentials. `MARKET_SENTRY_PROVIDER=alpaca` is a placeholder and exits with a clear not-implemented message; real API implementation is still not present.
 
+Phase 10A adds an offline Alpaca market-data skeleton for future request shaping and fixture parsing. Runtime still defaults to mock, real Alpaca integration is not active, and tests use fixtures only. Alpaca is not the planned source of float/reference data; future scanner-ready live candidates will likely require Alpaca market data plus FMP float/reference data. Do not commit credentials.
+
 ## Development
 
 Install the local development dependencies with:
