@@ -24,6 +24,8 @@ Phase 10B adds an offline FMP float/reference skeleton for future request shapin
 
 Phase 10C adds offline fixture-based candidate composition for future live-provider work. Runtime still defaults to mock, Alpaca and FMP are not active runtime providers, and composition currently uses offline fixtures/tests only. Future live scanner-ready candidates will likely require Alpaca market data plus FMP float/reference data. Do not commit credentials.
 
+Phase 10D adds an offline fixture-composed provider for future-provider testing. The default runtime remains mock, but `MARKET_SENTRY_PROVIDER=fixture` can run static Alpaca/FMP-style fixtures through the composer without credentials or network calls. Alpaca/FMP live providers are still not active. Trading/order functionality remains out of scope.
+
 ## Development
 
 Install the local development dependencies with:
@@ -48,6 +50,12 @@ Run the mock scanner report and voice-ready alert messages with:
 
 ```powershell
 python -m market_sentry
+```
+
+Run the offline fixture-composed provider with:
+
+```powershell
+$env:MARKET_SENTRY_PROVIDER="fixture"; python -m market_sentry; Remove-Item Env:MARKET_SENTRY_PROVIDER
 ```
 
 This command does not speak by default. To explicitly attempt local text-to-speech playback for generated alert messages, run:
