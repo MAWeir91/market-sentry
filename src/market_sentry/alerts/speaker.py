@@ -42,6 +42,13 @@ def collect_alert_messages(items: Iterable[AlertSpeechItem]) -> tuple[str, ...]:
     return tuple(alert_message(item) for item in items)
 
 
+def build_spoken_script(messages: Iterable[str]) -> str:
+    """Combine alert messages into one readable spoken script."""
+
+    cleaned_messages = tuple(message.strip() for message in messages if message.strip())
+    return " ".join(cleaned_messages)
+
+
 class NoOpSpeaker:
     """Safe speaker that accepts messages without audio playback."""
 
@@ -63,8 +70,8 @@ class LocalTTSSpeaker:
 
         try:
             engine = self._create_engine()
-            for message in messages:
-                engine.say(message)
+            spoken_script = build_spoken_script(messages)
+            engine.say(spoken_script)
             engine.runAndWait()
         except ImportError:
             return SpeakerResult(

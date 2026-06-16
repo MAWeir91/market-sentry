@@ -7,6 +7,7 @@ from market_sentry.alerts import (
     SpeakerResult,
     collect_alert_messages,
 )
+from market_sentry.alerts.speaker import build_spoken_script
 from market_sentry.alerts.formatter import format_alert_message
 from market_sentry.scanner.engine import evaluate_candidate
 from market_sentry.scanner.models import StockCandidate
@@ -64,6 +65,14 @@ def test_speaker_abstraction_can_process_multiple_messages_through_fake() -> Non
     assert speaker.messages[1] == "Second message."
 
 
+def test_build_spoken_script_combines_messages_into_readable_script() -> None:
+    script = build_spoken_script(
+        ["First alert message.", "Second alert message.", "  Third alert message.  "]
+    )
+
+    assert script == "First alert message. Second alert message. Third alert message."
+
+
 def test_local_tts_speaker_handles_missing_optional_dependency(monkeypatch) -> None:
     original_import = builtins.__import__
 
@@ -87,13 +96,13 @@ def test_local_tts_speaker_uses_injected_engine_without_real_audio() -> None:
     class FakeEngine:
         def __init__(self) -> None:
             self.spoken: list[str] = []
-            self.ran = False
+            self.run_count = 0
 
         def say(self, message: str) -> None:
             self.spoken.append(message)
 
         def runAndWait(self) -> None:
-            self.ran = True
+            self.run_count += 1
 
     engine = FakeEngine()
 
@@ -102,8 +111,8 @@ def test_local_tts_speaker_uses_injected_engine_without_real_audio() -> None:
     )
 
     assert result == SpeakerResult(success=True, message_count=2)
-    assert engine.spoken == ["First message.", "Second message."]
-    assert engine.ran is True
+    assert engine.spoken == ["First message. Second message."]
+    assert engine.run_count == 1
 
 
 def test_local_tts_speaker_fails_gracefully_on_engine_error() -> None:
