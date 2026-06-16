@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from market_sentry.alerts import AlertEvent, generate_alerts
 from market_sentry.data import MockMarketDataProvider
 from market_sentry.scanner import ScannerEngine, ScannerResult
 
@@ -39,10 +40,18 @@ def _format_result(result: ScannerResult) -> list[str]:
     return lines
 
 
-def render_report(results: Iterable[ScannerResult]) -> str:
-    """Render scanner results as a readable deterministic terminal report."""
+def _format_alert(alert: AlertEvent) -> str:
+    return f"[{alert.priority.name}] {alert.message}"
+
+
+def render_report(
+    results: Iterable[ScannerResult],
+    alerts: Iterable[AlertEvent] = (),
+) -> str:
+    """Render scanner results and voice-ready alerts for terminal output."""
 
     result_list = list(results)
+    alert_list = list(alerts)
     qualified_results = [result for result in result_list if result.qualified]
     rejected_results = [result for result in result_list if not result.qualified]
 
@@ -72,6 +81,13 @@ def render_report(results: Iterable[ScannerResult]) -> str:
     else:
         lines.append("No rejected candidates.")
 
+    lines.extend(["", "Voice-Ready Alerts", "------------------"])
+
+    if alert_list:
+        lines.extend(_format_alert(alert) for alert in alert_list)
+    else:
+        lines.append("No voice-ready alerts.")
+
     return "\n".join(lines)
 
 
@@ -81,7 +97,8 @@ def main() -> None:
     provider = MockMarketDataProvider()
     candidates = provider.get_candidates()
     results = ScannerEngine().scan(candidates)
-    print(render_report(results))
+    alerts = generate_alerts(results)
+    print(render_report(results, alerts))
 
 
 if __name__ == "__main__":
