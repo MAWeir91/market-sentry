@@ -25,6 +25,16 @@ from market_sentry.scanner import ScannerEngine, ScannerResult
 
 DEFAULT_INTERVAL_SECONDS = 30.0
 MIN_INTERVAL_SECONDS = 5.0
+PROVIDER_REPORT_LABELS = {
+    "mock": "Mock Scanner Report",
+    "fixture": "Fixture Scanner Report",
+}
+
+
+def get_provider_display_label(provider_name: str) -> str:
+    """Return the report label for active offline providers."""
+
+    return PROVIDER_REPORT_LABELS.get(provider_name.strip().lower(), "Scanner Report")
 
 
 def format_share_count(value: int) -> str:
@@ -92,6 +102,7 @@ def render_report(
     results: Iterable[ScannerResult],
     alerts: Iterable[AlertEvent] = (),
     scan_label: str | None = None,
+    report_label: str = PROVIDER_REPORT_LABELS["mock"],
 ) -> str:
     """Render scanner results and voice-ready alerts for terminal output."""
 
@@ -100,7 +111,7 @@ def render_report(
     qualified_results = [result for result in result_list if result.qualified]
     rejected_results = [result for result in result_list if not result.qualified]
 
-    lines = ["Market Sentry", "Mock Scanner Report"]
+    lines = ["Market Sentry", report_label]
     if scan_label is not None:
         lines.append(scan_label)
     lines.extend(["", "Qualified Results", "-----------------"])
@@ -168,6 +179,7 @@ def _run_scan(
     cooldown_manager: AlertCooldownManager | None = None,
     scan_time: datetime | None = None,
     scan_label: str | None = None,
+    report_label: str = PROVIDER_REPORT_LABELS["mock"],
 ) -> None:
     candidates = provider.get_candidates()
     results = ScannerEngine().scan(candidates)
@@ -182,7 +194,14 @@ def _run_scan(
             created_at=event_time,
         )
 
-    print(render_report(results, display_alerts, scan_label=scan_label))
+    print(
+        render_report(
+            results,
+            display_alerts,
+            scan_label=scan_label,
+            report_label=report_label,
+        )
+    )
 
     if speak:
         voice_speaker = speaker or LocalTTSSpeaker()
@@ -200,6 +219,7 @@ def run_loop(
     sleep_fn=sleep,
     now_fn=_now_utc,
     max_iterations: int | None = None,
+    report_label: str = PROVIDER_REPORT_LABELS["mock"],
 ) -> None:
     """Run repeated mock scans until interrupted or test limit is reached."""
 
@@ -216,6 +236,7 @@ def run_loop(
                 cooldown_manager=cooldown_manager if speak else None,
                 scan_time=scan_time,
                 scan_label=_format_scan_label(iteration, scan_time),
+                report_label=report_label,
             )
 
             iteration += 1
@@ -254,10 +275,16 @@ def main(
             sleep_fn=sleep_fn,
             now_fn=now_fn,
             max_iterations=max_iterations,
+            report_label=get_provider_display_label(config.provider),
         )
         return 0
 
-    _run_scan(provider=provider, speak=args.speak, speaker=speaker)
+    _run_scan(
+        provider=provider,
+        speak=args.speak,
+        speaker=speaker,
+        report_label=get_provider_display_label(config.provider),
+    )
     return 0
 
 

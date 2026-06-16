@@ -9,6 +9,7 @@ from market_sentry.main import (
     DEFAULT_INTERVAL_SECONDS,
     MIN_INTERVAL_SECONDS,
     format_share_count,
+    get_provider_display_label,
     main,
     normalize_interval,
     parse_args,
@@ -137,6 +138,11 @@ def test_main_prints_mock_scanner_report(capsys) -> None:
     assert "Rejected Results" in output
     assert "Voice-Ready Alerts" in output
     assert "Mock Scanner Report" in output
+
+
+def test_provider_display_label_maps_active_offline_providers() -> None:
+    assert get_provider_display_label("mock") == "Mock Scanner Report"
+    assert get_provider_display_label(" FIXTURE ") == "Fixture Scanner Report"
 
 
 def test_parse_args_has_default_interval_and_single_run_mode() -> None:
@@ -347,7 +353,58 @@ def test_runtime_explicit_mock_provider_works(monkeypatch, capsys) -> None:
 
     assert exit_code == 0
     assert "Market Sentry" in output
+    assert "Mock Scanner Report" in output
     assert "Qualified Results" in output
+
+
+def test_runtime_fixture_provider_uses_fixture_report_label(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("MARKET_SENTRY_PROVIDER", "fixture")
+
+    exit_code = main([])
+
+    output = capsys.readouterr().out
+    header = output.split("Qualified Results", maxsplit=1)[0]
+
+    assert exit_code == 0
+    assert "Market Sentry" in output
+    assert "Fixture Scanner Report" in header
+    assert "Mock Scanner Report" not in header
+    assert "XTRM" in output
+
+
+def test_loop_mode_uses_fixture_report_label(monkeypatch, capsys) -> None:
+    sleeps: list[float] = []
+    now = datetime(2026, 6, 16, 14, 30, tzinfo=timezone.utc)
+    monkeypatch.setenv("MARKET_SENTRY_PROVIDER", "fixture")
+
+    exit_code = main(
+        ["--loop", "--interval", "5"],
+        sleep_fn=sleeps.append,
+        now_fn=lambda: now,
+        max_iterations=1,
+    )
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Fixture Scanner Report" in output
+    assert "Mock Scanner Report" not in output
+    assert "Scan Iteration: 1" in output
+    assert sleeps == []
+
+
+def test_fixture_voice_mode_still_uses_injected_speaker(monkeypatch, capsys) -> None:
+    speaker = RecordingSpeaker()
+    monkeypatch.setenv("MARKET_SENTRY_PROVIDER", "fixture")
+
+    exit_code = main(["--speak"], speaker=speaker)
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Fixture Scanner Report" in output
+    assert speaker.messages
+    assert speaker.messages[0].startswith("XTRM extreme runner.")
 
 
 def test_runtime_alpaca_placeholder_fails_cleanly(monkeypatch, capsys) -> None:
@@ -364,6 +421,8 @@ def test_runtime_alpaca_placeholder_fails_cleanly(monkeypatch, capsys) -> None:
         "Live API implementation is not present yet."
     ) in output
     assert "Market Sentry" not in output
+    assert "Mock Scanner Report" not in output
+    assert "Fixture Scanner Report" not in output
     assert "Traceback" not in output
     assert speaker.calls == 0
 
@@ -378,6 +437,8 @@ def test_runtime_unknown_provider_fails_cleanly(monkeypatch, capsys) -> None:
     assert exit_code == 1
     assert "Provider configuration error: Unknown market data provider: bad_provider" in output
     assert "Market Sentry" not in output
+    assert "Mock Scanner Report" not in output
+    assert "Fixture Scanner Report" not in output
     assert "Traceback" not in output
 
 
