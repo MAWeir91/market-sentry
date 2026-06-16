@@ -14,6 +14,8 @@ The current runner uses local static mock data only. It displays voice-ready ale
 
 Real data provider implementation is not present yet. Phase 9A documents the planned provider strategy: Alpaca Market Data is the likely first price/volume/intraday provider, and Financial Modeling Prep is the likely first float/reference provider. The current runtime remains mock-data based until a future phase explicitly adds real-provider code.
 
+Phase 9B adds a provider configuration skeleton for future phases. `mock` is still the default and only functional provider. Placeholder environment variables exist for future Alpaca/FMP configuration, but real provider implementation is not present yet and secrets should never be committed.
+
 ## Development
 
 Install the local development dependencies with:
