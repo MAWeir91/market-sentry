@@ -28,6 +28,8 @@ Phase 10D adds an offline fixture-composed provider for future-provider testing.
 
 Phase 11A adds a generic HTTP transport skeleton for future live-provider phases. Current runtime modes still require no credentials: mock remains the default, fixture remains offline/static, and Alpaca/FMP live providers are not active. Do not commit secrets. Trading/order functionality remains out of scope.
 
+Phase 11B adds an Alpaca snapshot fetcher skeleton behind the generic HTTP transport abstraction. Tests use fake transport responses only, runtime still defaults to mock, fixture remains offline/static, and Alpaca/FMP live providers are not active. Alpaca alone does not provide the float/reference data needed for scanner-ready low-float candidates. Do not commit credentials.
+
 ## Development
 
 Install the local development dependencies with:
