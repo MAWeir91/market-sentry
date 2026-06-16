@@ -2,10 +2,23 @@ import ast
 import inspect
 
 import market_sentry.__main__ as package_main
-from market_sentry.alerts import generate_alerts
+from market_sentry.alerts import SpeakerResult, collect_alert_messages, generate_alerts
 from market_sentry.data import MockMarketDataProvider
 from market_sentry.main import format_share_count, main, render_report
 from market_sentry.scanner import ScannerEngine
+
+
+class RecordingSpeaker:
+    def __init__(self, result: SpeakerResult | None = None) -> None:
+        self.messages: list[str] = []
+        self.result = result
+
+    def speak(self, items) -> SpeakerResult:
+        self.messages.extend(collect_alert_messages(items))
+        return self.result or SpeakerResult(
+            success=True,
+            message_count=len(self.messages),
+        )
 
 
 def test_format_share_count_uses_readable_units() -> None:
@@ -92,7 +105,7 @@ def test_voice_ready_alert_messages_avoid_trading_advice_language() -> None:
 
 
 def test_main_prints_mock_scanner_report(capsys) -> None:
-    main()
+    main([])
 
     output = capsys.readouterr().out
 
@@ -101,6 +114,57 @@ def test_main_prints_mock_scanner_report(capsys) -> None:
     assert "Rejected Results" in output
     assert "Voice-Ready Alerts" in output
     assert "Mock Scanner Report" in output
+
+
+def test_cli_default_does_not_attempt_speech_playback(capsys) -> None:
+    speaker = RecordingSpeaker()
+
+    main([], speaker=speaker)
+
+    output = capsys.readouterr().out
+    assert "Market Sentry" in output
+    assert "Voice-Ready Alerts" in output
+    assert speaker.messages == []
+
+
+def test_cli_no_speak_does_not_attempt_speech_playback(capsys) -> None:
+    speaker = RecordingSpeaker()
+
+    main(["--no-speak"], speaker=speaker)
+
+    output = capsys.readouterr().out
+    assert "Market Sentry" in output
+    assert "Voice-Ready Alerts" in output
+    assert speaker.messages == []
+
+
+def test_cli_speak_routes_alert_messages_to_injected_speaker(capsys) -> None:
+    speaker = RecordingSpeaker()
+
+    main(["--speak"], speaker=speaker)
+
+    output = capsys.readouterr().out
+    assert "Market Sentry" in output
+    assert "Voice-Ready Alerts" in output
+    assert speaker.messages
+    assert speaker.messages[0].startswith("XTRM extreme runner.")
+
+
+def test_report_prints_even_when_speech_playback_fails(capsys) -> None:
+    speaker = RecordingSpeaker(
+        SpeakerResult(
+            success=False,
+            message_count=1,
+            error="Voice playback unavailable: test failure",
+        )
+    )
+
+    main(["--speak"], speaker=speaker)
+
+    output = capsys.readouterr().out
+    assert "Market Sentry" in output
+    assert "Voice-Ready Alerts" in output
+    assert "Voice playback unavailable: test failure" in output
 
 
 def test_package_main_delegates_to_main() -> None:
@@ -131,6 +195,5 @@ def test_cli_runner_has_no_external_api_or_trading_behavior() -> None:
     assert "api_key" not in source.lower()
     assert "broker" not in source.lower()
     assert "text_to_speech" not in source.lower()
-    assert "pyttsx3" not in source.lower()
     assert "place_order" not in source.lower()
     assert "execute_order" not in source.lower()

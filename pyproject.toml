@@ -17,6 +17,9 @@ dependencies = []
 dev = [
   "pytest>=8",
 ]
+voice = [
+  "pyttsx3>=2.90",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

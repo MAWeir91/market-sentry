@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import argparse
 from collections.abc import Iterable
+from typing import Sequence
 
-from market_sentry.alerts import AlertEvent, generate_alerts
+from market_sentry.alerts import AlertEvent, AlertSpeaker, LocalTTSSpeaker, generate_alerts
 from market_sentry.data import MockMarketDataProvider
 from market_sentry.scanner import ScannerEngine, ScannerResult
 
@@ -91,14 +93,35 @@ def render_report(
     return "\n".join(lines)
 
 
-def main() -> None:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parse the small Phase 6 CLI surface."""
+
+    parser = argparse.ArgumentParser(add_help=False)
+    speak_group = parser.add_mutually_exclusive_group()
+    speak_group.add_argument("--speak", action="store_true", dest="speak")
+    speak_group.add_argument("--no-speak", action="store_false", dest="speak")
+    parser.set_defaults(speak=False)
+    return parser.parse_args(argv)
+
+
+def main(
+    argv: Sequence[str] | None = None,
+    speaker: AlertSpeaker | None = None,
+) -> None:
     """Run the local mock provider through the scanner and print a report."""
 
+    args = parse_args(argv)
     provider = MockMarketDataProvider()
     candidates = provider.get_candidates()
     results = ScannerEngine().scan(candidates)
     alerts = generate_alerts(results)
     print(render_report(results, alerts))
+
+    if args.speak:
+        voice_speaker = speaker or LocalTTSSpeaker()
+        speech_result = voice_speaker.speak(alerts)
+        if not speech_result.success and speech_result.error is not None:
+            print(f"\n{speech_result.error}")
 
 
 if __name__ == "__main__":

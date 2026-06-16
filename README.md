@@ -18,6 +18,12 @@ Install the local development dependencies with:
 python -m pip install -e ".[dev]"
 ```
 
+Install optional local voice playback support with:
+
+```powershell
+python -m pip install -e ".[voice]"
+```
+
 Run the test suite with:
 
 ```powershell
@@ -28,4 +34,16 @@ Run the mock scanner report and voice-ready alert messages with:
 
 ```powershell
 python -m market_sentry
+```
+
+This command does not speak by default. To explicitly attempt local text-to-speech playback for generated alert messages, run:
+
+```powershell
+python -m market_sentry --speak
+```
+
+To explicitly keep playback disabled, run:
+
+```powershell
+python -m market_sentry --no-speak
 ```
