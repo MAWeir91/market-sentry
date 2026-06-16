@@ -1,10 +1,19 @@
 import ast
 import inspect
+from datetime import datetime, timedelta, timezone
 
 import market_sentry.__main__ as package_main
 from market_sentry.alerts import SpeakerResult, collect_alert_messages, generate_alerts
 from market_sentry.data import MockMarketDataProvider
-from market_sentry.main import format_share_count, main, render_report
+from market_sentry.main import (
+    DEFAULT_INTERVAL_SECONDS,
+    MIN_INTERVAL_SECONDS,
+    format_share_count,
+    main,
+    normalize_interval,
+    parse_args,
+    render_report,
+)
 from market_sentry.scanner import ScannerEngine
 
 
@@ -12,12 +21,15 @@ class RecordingSpeaker:
     def __init__(self, result: SpeakerResult | None = None) -> None:
         self.messages: list[str] = []
         self.result = result
+        self.calls = 0
 
     def speak(self, items) -> SpeakerResult:
-        self.messages.extend(collect_alert_messages(items))
+        self.calls += 1
+        messages = collect_alert_messages(items)
+        self.messages.extend(messages)
         return self.result or SpeakerResult(
             success=True,
-            message_count=len(self.messages),
+            message_count=len(messages),
         )
 
 
@@ -124,6 +136,137 @@ def test_main_prints_mock_scanner_report(capsys) -> None:
     assert "Rejected Results" in output
     assert "Voice-Ready Alerts" in output
     assert "Mock Scanner Report" in output
+
+
+def test_parse_args_has_default_interval_and_single_run_mode() -> None:
+    args = parse_args([])
+
+    assert args.loop is False
+    assert args.speak is False
+    assert args.interval == DEFAULT_INTERVAL_SECONDS
+
+
+def test_interval_below_minimum_clamps_to_five_seconds() -> None:
+    assert normalize_interval(1) == MIN_INTERVAL_SECONDS
+    assert normalize_interval(5) == MIN_INTERVAL_SECONDS
+    assert normalize_interval(30) == 30
+
+
+def test_loop_mode_runs_finite_iterations_without_long_sleep(capsys) -> None:
+    sleeps: list[float] = []
+    now = datetime(2026, 6, 16, 14, 30, tzinfo=timezone.utc)
+
+    main(
+        ["--loop", "--interval", "30"],
+        sleep_fn=sleeps.append,
+        now_fn=lambda: now,
+        max_iterations=2,
+    )
+
+    output = capsys.readouterr().out
+
+    assert output.count("Market Sentry") == 2
+    assert "Scan Iteration: 1" in output
+    assert "Scan Iteration: 2" in output
+    assert sleeps == [30.0]
+
+
+def test_loop_mode_clamps_interval_before_sleeping(capsys) -> None:
+    sleeps: list[float] = []
+    now = datetime(2026, 6, 16, 14, 30, tzinfo=timezone.utc)
+
+    main(
+        ["--loop", "--interval", "1"],
+        sleep_fn=sleeps.append,
+        now_fn=lambda: now,
+        max_iterations=2,
+    )
+
+    capsys.readouterr()
+
+    assert sleeps == [5.0]
+
+
+def test_keyboard_interrupt_exits_loop_cleanly(capsys) -> None:
+    now = datetime(2026, 6, 16, 14, 30, tzinfo=timezone.utc)
+
+    def interrupting_sleep(_seconds: float) -> None:
+        raise KeyboardInterrupt
+
+    main(
+        ["--loop", "--interval", "5"],
+        sleep_fn=interrupting_sleep,
+        now_fn=lambda: now,
+    )
+
+    output = capsys.readouterr().out
+
+    assert "Market Sentry loop stopped." in output
+    assert "Traceback" not in output
+
+
+def test_loop_speak_uses_speaker_path_and_cooldowns_suppress_repeats(capsys) -> None:
+    speaker = RecordingSpeaker()
+    now = datetime(2026, 6, 16, 14, 30, tzinfo=timezone.utc)
+
+    main(
+        ["--loop", "--interval", "5", "--speak"],
+        speaker=speaker,
+        sleep_fn=lambda _seconds: None,
+        now_fn=lambda: now,
+        max_iterations=2,
+    )
+
+    output = capsys.readouterr().out
+
+    assert "Scan Iteration: 1" in output
+    assert "Scan Iteration: 2" in output
+    assert speaker.calls == 2
+    assert len(speaker.messages) == 5
+    assert speaker.messages[0].startswith("XTRM extreme runner.")
+
+
+def test_loop_speak_allows_alerts_after_cooldown_expires(capsys) -> None:
+    speaker = RecordingSpeaker()
+    times = iter(
+        [
+            datetime(2026, 6, 16, 14, 30, tzinfo=timezone.utc),
+            datetime(2026, 6, 16, 14, 40, tzinfo=timezone.utc),
+        ]
+    )
+
+    main(
+        ["--loop", "--interval", "5", "--speak"],
+        speaker=speaker,
+        sleep_fn=lambda _seconds: None,
+        now_fn=lambda: next(times),
+        max_iterations=2,
+    )
+
+    capsys.readouterr()
+
+    assert speaker.calls == 2
+    assert len(speaker.messages) == 10
+
+
+def test_loop_no_speak_does_not_use_speaker_path(capsys) -> None:
+    speaker = RecordingSpeaker()
+    now = datetime(2026, 6, 16, 14, 30, tzinfo=timezone.utc)
+
+    main(
+        ["--loop", "--interval", "5", "--no-speak"],
+        speaker=speaker,
+        sleep_fn=lambda _seconds: None,
+        now_fn=lambda: now,
+        max_iterations=2,
+    )
+
+    output = capsys.readouterr().out
+
+    assert "Scan Iteration: 1" in output
+    assert "Scan Iteration: 2" in output
+    assert speaker.messages == []
+    assert speaker.calls == 0
 
 
 def test_cli_default_does_not_attempt_speech_playback(capsys) -> None:

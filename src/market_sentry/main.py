@@ -4,11 +4,22 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Iterable
+from datetime import datetime, timezone
+from time import sleep
 from typing import Sequence
 
-from market_sentry.alerts import AlertEvent, AlertSpeaker, LocalTTSSpeaker, generate_alerts
+from market_sentry.alerts import (
+    AlertCooldownManager,
+    AlertEvent,
+    AlertSpeaker,
+    LocalTTSSpeaker,
+    generate_alerts,
+)
 from market_sentry.data import MockMarketDataProvider
 from market_sentry.scanner import ScannerEngine, ScannerResult
+
+DEFAULT_INTERVAL_SECONDS = 30.0
+MIN_INTERVAL_SECONDS = 5.0
 
 
 def format_share_count(value: int) -> str:
@@ -75,6 +86,7 @@ def _format_alert(alert: AlertEvent) -> str:
 def render_report(
     results: Iterable[ScannerResult],
     alerts: Iterable[AlertEvent] = (),
+    scan_label: str | None = None,
 ) -> str:
     """Render scanner results and voice-ready alerts for terminal output."""
 
@@ -83,13 +95,10 @@ def render_report(
     qualified_results = [result for result in result_list if result.qualified]
     rejected_results = [result for result in result_list if not result.qualified]
 
-    lines = [
-        "Market Sentry",
-        "Mock Scanner Report",
-        "",
-        "Qualified Results",
-        "-----------------",
-    ]
+    lines = ["Market Sentry", "Mock Scanner Report"]
+    if scan_label is not None:
+        lines.append(scan_label)
+    lines.extend(["", "Qualified Results", "-----------------"])
 
     if qualified_results:
         for index, result in enumerate(qualified_results):
@@ -120,9 +129,11 @@ def render_report(
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    """Parse the small Phase 6 CLI surface."""
+    """Parse the small Market Sentry CLI surface."""
 
     parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--loop", action="store_true")
+    parser.add_argument("--interval", type=float, default=DEFAULT_INTERVAL_SECONDS)
     speak_group = parser.add_mutually_exclusive_group()
     speak_group.add_argument("--speak", action="store_true", dest="speak")
     speak_group.add_argument("--no-speak", action="store_false", dest="speak")
@@ -130,24 +141,108 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def normalize_interval(interval_seconds: float) -> float:
+    """Return an interval that respects the Phase 8 minimum."""
+
+    return max(interval_seconds, MIN_INTERVAL_SECONDS)
+
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _format_scan_label(iteration: int, scan_time: datetime) -> str:
+    return f"Scan Iteration: {iteration} | Scan Time: {scan_time:%Y-%m-%d %H:%M:%S}"
+
+
+def _run_scan(
+    *,
+    speak: bool = False,
+    speaker: AlertSpeaker | None = None,
+    cooldown_manager: AlertCooldownManager | None = None,
+    scan_time: datetime | None = None,
+    scan_label: str | None = None,
+) -> None:
+    provider = MockMarketDataProvider()
+    candidates = provider.get_candidates()
+    results = ScannerEngine().scan(candidates)
+    display_alerts = generate_alerts(results)
+
+    event_time = scan_time or _now_utc()
+    speak_alerts = display_alerts
+    if cooldown_manager is not None:
+        speak_alerts = generate_alerts(
+            results,
+            cooldown_manager=cooldown_manager,
+            created_at=event_time,
+        )
+
+    print(render_report(results, display_alerts, scan_label=scan_label))
+
+    if speak:
+        voice_speaker = speaker or LocalTTSSpeaker()
+        speech_result = voice_speaker.speak(speak_alerts)
+        if not speech_result.success and speech_result.error is not None:
+            print(f"\n{speech_result.error}")
+
+
+def run_loop(
+    *,
+    interval_seconds: float,
+    speak: bool = False,
+    speaker: AlertSpeaker | None = None,
+    sleep_fn=sleep,
+    now_fn=_now_utc,
+    max_iterations: int | None = None,
+) -> None:
+    """Run repeated mock scans until interrupted or test limit is reached."""
+
+    cooldown_manager = AlertCooldownManager()
+    iteration = 1
+
+    try:
+        while max_iterations is None or iteration <= max_iterations:
+            scan_time = now_fn()
+            _run_scan(
+                speak=speak,
+                speaker=speaker,
+                cooldown_manager=cooldown_manager if speak else None,
+                scan_time=scan_time,
+                scan_label=_format_scan_label(iteration, scan_time),
+            )
+
+            iteration += 1
+            if max_iterations is not None and iteration > max_iterations:
+                break
+            sleep_fn(interval_seconds)
+    except KeyboardInterrupt:
+        print("\nMarket Sentry loop stopped.")
+
+
 def main(
     argv: Sequence[str] | None = None,
     speaker: AlertSpeaker | None = None,
+    sleep_fn=sleep,
+    now_fn=_now_utc,
+    max_iterations: int | None = None,
 ) -> None:
     """Run the local mock provider through the scanner and print a report."""
 
     args = parse_args(argv)
-    provider = MockMarketDataProvider()
-    candidates = provider.get_candidates()
-    results = ScannerEngine().scan(candidates)
-    alerts = generate_alerts(results)
-    print(render_report(results, alerts))
+    interval_seconds = normalize_interval(args.interval)
 
-    if args.speak:
-        voice_speaker = speaker or LocalTTSSpeaker()
-        speech_result = voice_speaker.speak(alerts)
-        if not speech_result.success and speech_result.error is not None:
-            print(f"\n{speech_result.error}")
+    if args.loop:
+        run_loop(
+            interval_seconds=interval_seconds,
+            speak=args.speak,
+            speaker=speaker,
+            sleep_fn=sleep_fn,
+            now_fn=now_fn,
+            max_iterations=max_iterations,
+        )
+        return
+
+    _run_scan(speak=args.speak, speaker=speaker)
 
 
 if __name__ == "__main__":

@@ -47,3 +47,19 @@ To explicitly keep playback disabled, run:
 ```powershell
 python -m market_sentry --no-speak
 ```
+
+Run the mock scanner repeatedly with:
+
+```powershell
+python -m market_sentry --loop --interval 30
+```
+
+Run the mock scanner loop with explicit local voice playback:
+
+```powershell
+python -m market_sentry --loop --interval 30 --speak
+```
+
+The loop interval defaults to 30 seconds. Values below 5 seconds are clamped to 5 seconds. Press `Ctrl+C` to stop loop mode cleanly.
+
+Loop mode still uses local static mock data only. It does not connect to market-data APIs, WebSockets, brokerage trading/order APIs, or any service that can place trades.
