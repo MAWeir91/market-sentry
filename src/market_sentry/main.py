@@ -28,6 +28,7 @@ MIN_INTERVAL_SECONDS = 5.0
 PROVIDER_REPORT_LABELS = {
     "mock": "Mock Scanner Report",
     "fixture": "Fixture Scanner Report",
+    "composed_fixture": "Composed Fixture Scanner Report",
 }
 
 

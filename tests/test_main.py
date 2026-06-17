@@ -143,6 +143,10 @@ def test_main_prints_mock_scanner_report(capsys) -> None:
 def test_provider_display_label_maps_active_offline_providers() -> None:
     assert get_provider_display_label("mock") == "Mock Scanner Report"
     assert get_provider_display_label(" FIXTURE ") == "Fixture Scanner Report"
+    assert (
+        get_provider_display_label(" COMPOSED_FIXTURE ")
+        == "Composed Fixture Scanner Report"
+    )
 
 
 def test_parse_args_has_default_interval_and_single_run_mode() -> None:
@@ -372,6 +376,24 @@ def test_runtime_fixture_provider_uses_fixture_report_label(monkeypatch, capsys)
     assert "XTRM" in output
 
 
+def test_runtime_composed_fixture_provider_uses_composed_fixture_report_label(
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setenv("MARKET_SENTRY_PROVIDER", "composed_fixture")
+
+    exit_code = main([])
+
+    output = capsys.readouterr().out
+    header = output.split("Qualified Results", maxsplit=1)[0]
+    header_lines = header.splitlines()
+
+    assert exit_code == 0
+    assert "Market Sentry" in output
+    assert header_lines[1] == "Composed Fixture Scanner Report"
+    assert "CMPX" in output
+
+
 def test_loop_mode_uses_fixture_report_label(monkeypatch, capsys) -> None:
     sleeps: list[float] = []
     now = datetime(2026, 6, 16, 14, 30, tzinfo=timezone.utc)
@@ -407,6 +429,20 @@ def test_fixture_voice_mode_still_uses_injected_speaker(monkeypatch, capsys) -> 
     assert speaker.messages[0].startswith("XTRM extreme runner.")
 
 
+def test_composed_fixture_voice_mode_still_uses_injected_speaker(monkeypatch, capsys) -> None:
+    speaker = RecordingSpeaker()
+    monkeypatch.setenv("MARKET_SENTRY_PROVIDER", "composed_fixture")
+
+    exit_code = main(["--speak"], speaker=speaker)
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Composed Fixture Scanner Report" in output
+    assert speaker.messages
+    assert speaker.messages[0].startswith("CMPX")
+
+
 def test_runtime_alpaca_placeholder_fails_cleanly(monkeypatch, capsys) -> None:
     speaker = RecordingSpeaker()
     monkeypatch.setenv("MARKET_SENTRY_PROVIDER", "alpaca")
@@ -423,6 +459,7 @@ def test_runtime_alpaca_placeholder_fails_cleanly(monkeypatch, capsys) -> None:
     assert "Market Sentry" not in output
     assert "Mock Scanner Report" not in output
     assert "Fixture Scanner Report" not in output
+    assert "Composed Fixture Scanner Report" not in output
     assert "Traceback" not in output
     assert speaker.calls == 0
 
@@ -439,6 +476,7 @@ def test_runtime_unknown_provider_fails_cleanly(monkeypatch, capsys) -> None:
     assert "Market Sentry" not in output
     assert "Mock Scanner Report" not in output
     assert "Fixture Scanner Report" not in output
+    assert "Composed Fixture Scanner Report" not in output
     assert "Traceback" not in output
 
 

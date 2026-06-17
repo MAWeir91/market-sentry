@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from market_sentry.config import AppConfig
+from market_sentry.data.composed_fixture_provider import OfflineComposedFixtureProvider
 from market_sentry.data.fixture_provider import FixtureComposedMarketDataProvider
 from market_sentry.data.mock_provider import MockMarketDataProvider
 from market_sentry.data.provider import MarketDataProvider
@@ -22,6 +23,9 @@ def create_market_data_provider(config: AppConfig) -> MarketDataProvider:
 
     if provider == "fixture":
         return FixtureComposedMarketDataProvider()
+
+    if provider == "composed_fixture":
+        return OfflineComposedFixtureProvider()
 
     if provider == "alpaca":
         raise ProviderConfigurationError(

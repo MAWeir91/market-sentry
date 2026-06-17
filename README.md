@@ -34,6 +34,8 @@ Phase 11C adds an FMP float/reference fetcher skeleton behind the generic HTTP t
 
 Phase 11D adds a live-data candidate builder skeleton for future provider phases. It combines Alpaca movement data, FMP float data, and explicit relative-volume input through offline/fake tests only. Runtime still defaults to mock, fixture remains offline/static, Alpaca/FMP live providers are not active, and relative volume must not be fabricated. Do not commit credentials.
 
+Phase 11E adds an offline composed provider harness named `composed_fixture`. It combines static Alpaca-style movement data, static FMP-style float data, and explicit relative-volume data through the live candidate builder path. It is not a live provider, requires no credentials, and does not activate Alpaca or FMP runtime providers. Trading/order functionality remains out of scope.
+
 ## Development
 
 Install the local development dependencies with:
@@ -64,6 +66,12 @@ Run the offline fixture-composed provider with:
 
 ```powershell
 $env:MARKET_SENTRY_PROVIDER="fixture"; python -m market_sentry; Remove-Item Env:MARKET_SENTRY_PROVIDER
+```
+
+Run the offline composed provider harness with:
+
+```powershell
+$env:MARKET_SENTRY_PROVIDER="composed_fixture"; python -m market_sentry; Remove-Item Env:MARKET_SENTRY_PROVIDER
 ```
 
 This command does not speak by default. To explicitly attempt local text-to-speech playback for generated alert messages, run:
