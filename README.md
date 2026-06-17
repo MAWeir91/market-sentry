@@ -36,6 +36,8 @@ Phase 11D adds a live-data candidate builder skeleton for future provider phases
 
 Phase 11E adds an offline composed provider harness named `composed_fixture`. It combines static Alpaca-style movement data, static FMP-style float data, and explicit relative-volume data through the live candidate builder path. It is not a live provider, requires no credentials, and does not activate Alpaca or FMP runtime providers. Trading/order functionality remains out of scope.
 
+Phase 11F adds a standard-library HTTP transport for future live-provider phases. It is not active at runtime, tests mock standard-library networking and make no real network calls, and current runtime modes still require no API credentials. Secrets should not be committed.
+
 ## Development
 
 Install the local development dependencies with:
