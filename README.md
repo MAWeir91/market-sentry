@@ -44,6 +44,8 @@ Phase 12B reserves `MARKET_SENTRY_PROVIDER=live_composed` with a clean placehold
 
 Phase 12C adds a dependency-injected live composed provider skeleton for future live-data phases. It is tested with fake components only, is not active at runtime, does not fabricate relative volume, and leaves `live_composed` on the reserved/gated placeholder path. Runtime still defaults to mock, fixture and composed_fixture remain offline, Alpaca remains a placeholder, FMP remains inactive as a standalone runtime provider, credentials should not be committed, and trading/order functionality remains out of scope.
 
+Phase 12D adds a dry live-provider builder skeleton for future phases. It can assemble a `LiveComposedMarketDataProvider` from validated config and injected components, but it is not connected to runtime and `MARKET_SENTRY_PROVIDER=live_composed` remains the gated placeholder path. Runtime still defaults to mock, fixture and composed_fixture remain offline, Alpaca remains a placeholder, FMP remains inactive, relative volume must not be fabricated, secrets should not be committed, and trading/order functionality remains out of scope.
+
 ## Development
 
 Install the local development dependencies with:
