@@ -78,16 +78,20 @@ Run the mock scanner report and voice-ready alert messages with:
 python -m market_sentry
 ```
 
-Run the offline fixture-composed provider with:
+Run the offline fixture provider with:
 
 ```powershell
-$env:MARKET_SENTRY_PROVIDER="fixture"; python -m market_sentry; Remove-Item Env:MARKET_SENTRY_PROVIDER
+$env:MARKET_SENTRY_PROVIDER="fixture"
+python -m market_sentry
+Remove-Item Env:MARKET_SENTRY_PROVIDER
 ```
 
 Run the offline composed provider harness with:
 
 ```powershell
-$env:MARKET_SENTRY_PROVIDER="composed_fixture"; python -m market_sentry; Remove-Item Env:MARKET_SENTRY_PROVIDER
+$env:MARKET_SENTRY_PROVIDER="composed_fixture"
+python -m market_sentry
+Remove-Item Env:MARKET_SENTRY_PROVIDER
 ```
 
 This command does not speak by default. To explicitly attempt local text-to-speech playback for generated alert messages, run:
@@ -124,8 +128,24 @@ Run the live-readiness preflight without activating live data:
 python -m market_sentry --live-readiness
 ```
 
-When an explicit RVOL source has been configured outside the CLI, include:
+`--live-readiness` performs local checks only. It does not call Alpaca, FMP, or any network API, does not activate `live_composed`, and does not render the scanner report. `live_composed` remains reserved and inactive as a scanner provider, Alpaca remains a placeholder, and trading/order functionality is out of scope.
+
+Run a local preflight with placeholder values:
 
 ```powershell
+$env:MARKET_SENTRY_PROVIDER="live_composed"
+$env:MARKET_SENTRY_ALLOW_LIVE_DATA="true"
+$env:MARKET_SENTRY_WATCHLIST="AAPL"
+$env:ALPACA_API_KEY="placeholder-key"
+$env:ALPACA_API_SECRET="placeholder-secret"
+$env:FMP_API_KEY="placeholder-fmp-key"
 python -m market_sentry --live-readiness --relative-volume-configured
+Remove-Item Env:MARKET_SENTRY_PROVIDER
+Remove-Item Env:MARKET_SENTRY_ALLOW_LIVE_DATA
+Remove-Item Env:MARKET_SENTRY_WATCHLIST
+Remove-Item Env:ALPACA_API_KEY
+Remove-Item Env:ALPACA_API_SECRET
+Remove-Item Env:FMP_API_KEY
 ```
+
+`--relative-volume-configured` is only an explicit local signal that an RVOL source has been configured outside the CLI. RVOL is not calculated, fetched, inferred, or fabricated.
