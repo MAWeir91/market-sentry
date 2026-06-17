@@ -52,6 +52,8 @@ Phase 12F adds live-readiness diagnostics for future live-provider phases. Diagn
 
 Phase 12G exposes those diagnostics through `python -m market_sentry --live-readiness`. Add `--relative-volume-configured` only as an explicit local signal that RVOL source configuration exists; the command does not calculate RVOL, call Alpaca/FMP or any network API, activate `live_composed`, build providers, or render the scanner report.
 
+Phase 13A documents the future `live_composed` activation plan only. Real activation remains blocked until a later approved phase adds provider factory wiring, read-only HTTP wiring, and an explicit real relative-volume source; runtime still defaults to mock, `live_composed` remains a gated placeholder, and no live provider or network behavior is active.
+
 ## Development
 
 Install the local development dependencies with:
