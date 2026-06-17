@@ -54,6 +54,8 @@ Phase 12G exposes those diagnostics through `python -m market_sentry --live-read
 
 Phase 13A documents the future `live_composed` activation plan only. Real activation remains blocked until a later approved phase adds provider factory wiring, read-only HTTP wiring, and an explicit real relative-volume source; runtime still defaults to mock, `live_composed` remains a gated placeholder, and no live provider or network behavior is active.
 
+Phase 13B documents the future real relative-volume strategy only. The recommended path is watchlist-only historical-volume calculation through an offline/testable skeleton before any live activation; static RVOL remains testing-only, provider-supplied RVOL is deferred, and RVOL must never be fabricated.
+
 ## Development
 
 Install the local development dependencies with:
