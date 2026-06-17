@@ -91,6 +91,20 @@ class FakeFMPFetcher:
         return None
 
 
+class FakeRelativeVolumeProvider:
+    def __init__(self, values: dict[str, float]) -> None:
+        self.values = values
+        self.calls: list[tuple[str, ...]] = []
+
+    def get_relative_volumes(self, symbols) -> dict[str, float]:
+        self.calls.append(tuple(symbols))
+        return {
+            symbol.strip().upper(): self.values[symbol.strip().upper()]
+            for symbol in symbols
+            if symbol.strip().upper() in self.values
+        }
+
+
 def live_config(**overrides: object) -> AppConfig:
     values = {
         "provider": "live_composed",
@@ -271,9 +285,49 @@ def test_builder_requires_explicit_relative_volume_input() -> None:
         )
 
     assert str(exc_info.value) == (
-        "Explicit relative_volume_by_symbol is required for live provider wiring."
+        "Explicit relative_volume_by_symbol or relative_volume_provider is required "
+        "for live provider wiring."
     )
     assert recorder.transport.send_calls == 0
+
+
+def test_builder_can_use_explicit_relative_volume_provider() -> None:
+    recorder = FactoryRecorder()
+    relative_volume_provider = FakeRelativeVolumeProvider({"XTRM": 12.5})
+
+    provider = build_live_composed_provider(
+        live_config(watchlist=(" xtrm ",)),
+        relative_volume_provider=relative_volume_provider,
+        transport_factory=recorder.transport_factory,
+        alpaca_fetcher_factory=recorder.alpaca_fetcher_factory,
+        fmp_fetcher_factory=recorder.fmp_fetcher_factory,
+    )
+
+    candidates = provider.get_candidates()
+
+    assert relative_volume_provider.calls == [(" xtrm ",)]
+    assert [candidate.symbol for candidate in candidates] == ["XTRM"]
+    assert candidates[0].relative_volume == 12.5
+    assert recorder.transport.send_calls == 0
+
+
+def test_builder_prefers_explicit_mapping_when_mapping_and_provider_are_supplied() -> None:
+    recorder = FactoryRecorder()
+    relative_volume_provider = FakeRelativeVolumeProvider({"XTRM": 99.0})
+
+    provider = build_live_composed_provider(
+        live_config(),
+        relative_volume_by_symbol={"XTRM": 12.5},
+        relative_volume_provider=relative_volume_provider,
+        transport_factory=recorder.transport_factory,
+        alpaca_fetcher_factory=recorder.alpaca_fetcher_factory,
+        fmp_fetcher_factory=recorder.fmp_fetcher_factory,
+    )
+
+    candidates = provider.get_candidates()
+
+    assert relative_volume_provider.calls == []
+    assert candidates[0].relative_volume == 12.5
 
 
 def test_builder_passes_injected_settings_into_sources() -> None:

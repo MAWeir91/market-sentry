@@ -46,6 +46,8 @@ Phase 12C adds a dependency-injected live composed provider skeleton for future 
 
 Phase 12D adds a dry live-provider builder skeleton for future phases. It can assemble a `LiveComposedMarketDataProvider` from validated config and injected components, but it is not connected to runtime and `MARKET_SENTRY_PROVIDER=live_composed` remains the gated placeholder path. Runtime still defaults to mock, fixture and composed_fixture remain offline, Alpaca remains a placeholder, FMP remains inactive, relative volume must not be fabricated, secrets should not be committed, and trading/order functionality remains out of scope.
 
+Phase 12E adds a relative-volume provider interface for future live-provider phases. The static/offline RVOL provider returns only explicit positive values, never fabricates missing RVOL, and can feed the dry live-provider builder without activating runtime. Runtime remains mock by default, fixture and composed_fixture remain offline, Alpaca remains a placeholder, `live_composed` remains gated, current working modes require no credentials, secrets should not be committed, and trading/order functionality remains out of scope.
+
 ## Development
 
 Install the local development dependencies with:

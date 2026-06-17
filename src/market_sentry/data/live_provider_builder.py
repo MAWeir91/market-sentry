@@ -18,6 +18,7 @@ from market_sentry.data.alpaca import AlpacaMarketDataSettings
 from market_sentry.data.fmp import FMPReferenceSettings
 from market_sentry.data.live_candidate_builder import LiveCandidateBuilder
 from market_sentry.data.live_composed_provider import LiveComposedMarketDataProvider
+from market_sentry.data.relative_volume import RelativeVolumeProvider
 
 
 class LiveProviderBuildError(ValueError):
@@ -54,7 +55,8 @@ def _require_live_config_fields(config: AppConfig) -> None:
 def build_live_composed_provider(
     config: AppConfig,
     *,
-    relative_volume_by_symbol: Mapping[str, float | int | str] | None,
+    relative_volume_by_symbol: Mapping[str, float | int | str] | None = None,
+    relative_volume_provider: RelativeVolumeProvider | None = None,
     transport_factory: Callable[[], Any] | None,
     alpaca_fetcher_factory: Callable[..., Any] | None,
     fmp_fetcher_factory: Callable[..., Any] | None,
@@ -76,8 +78,13 @@ def build_live_composed_provider(
     _require_live_config_fields(config)
 
     if relative_volume_by_symbol is None:
-        raise LiveProviderBuildError(
-            "Explicit relative_volume_by_symbol is required for live provider wiring."
+        if relative_volume_provider is None:
+            raise LiveProviderBuildError(
+                "Explicit relative_volume_by_symbol or relative_volume_provider "
+                "is required for live provider wiring."
+            )
+        relative_volume_by_symbol = relative_volume_provider.get_relative_volumes(
+            config.watchlist
         )
 
     required_transport_factory = _require_factory(
