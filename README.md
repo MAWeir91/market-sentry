@@ -48,6 +48,8 @@ Phase 12D adds a dry live-provider builder skeleton for future phases. It can as
 
 Phase 12E adds a relative-volume provider interface for future live-provider phases. The static/offline RVOL provider returns only explicit positive values, never fabricates missing RVOL, and can feed the dry live-provider builder without activating runtime. Runtime remains mock by default, fixture and composed_fixture remain offline, Alpaca remains a placeholder, `live_composed` remains gated, current working modes require no credentials, secrets should not be committed, and trading/order functionality remains out of scope.
 
+Phase 12F adds live-readiness diagnostics for future live-provider phases. Diagnostics validate local preconditions only, do not call Alpaca, FMP, or any network API, and do not activate `live_composed`. Runtime remains mock by default, fixture and composed_fixture remain offline, Alpaca remains a placeholder, `live_composed` remains gated, RVOL source configuration must be explicit and is not fabricated, secrets should not be committed, and trading/order functionality remains out of scope.
+
 ## Development
 
 Install the local development dependencies with:
