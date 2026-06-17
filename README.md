@@ -40,6 +40,8 @@ Phase 11F adds a standard-library HTTP transport for future live-provider phases
 
 Phase 12A adds a strict config gate for a future live composed provider named `live_composed`. Live data is not active yet; the gate only validates that `MARKET_SENTRY_ALLOW_LIVE_DATA=true` or equivalent, a non-empty watchlist, Alpaca credentials, and an FMP key are present before future live mode could be considered. Runtime still defaults to mock, fixture and composed_fixture remain offline, Alpaca remains a placeholder, FMP remains inactive, and secrets should not be committed.
 
+Phase 12B reserves `MARKET_SENTRY_PROVIDER=live_composed` with a clean placeholder/config-gate error path. The Phase 12A gate checks the allow-live flag, watchlist, Alpaca credentials, and FMP key, but even a passing gate still exits because live data remains disabled until a future phase. Current working runtime modes require no credentials, and trading/order functionality remains out of scope.
+
 ## Development
 
 Install the local development dependencies with:

@@ -464,6 +464,62 @@ def test_runtime_alpaca_placeholder_fails_cleanly(monkeypatch, capsys) -> None:
     assert speaker.calls == 0
 
 
+def test_runtime_live_composed_failed_gate_fails_cleanly_without_report(
+    monkeypatch,
+    capsys,
+) -> None:
+    speaker = RecordingSpeaker()
+    monkeypatch.setenv("MARKET_SENTRY_PROVIDER", "live_composed")
+
+    exit_code = main(["--speak"], speaker=speaker)
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Provider configuration error:" in output
+    assert "live_composed is not enabled." in output
+    assert "LIVE_DATA_NOT_ALLOWED" in output
+    assert "MISSING_WATCHLIST" in output
+    assert "MISSING_ALPACA_API_KEY" in output
+    assert "MISSING_ALPACA_API_SECRET" in output
+    assert "MISSING_FMP_API_KEY" in output
+    assert "Market Sentry" not in output
+    assert "Mock Scanner Report" not in output
+    assert "Fixture Scanner Report" not in output
+    assert "Composed Fixture Scanner Report" not in output
+    assert "Qualified Results" not in output
+    assert "Traceback" not in output
+    assert speaker.calls == 0
+
+
+def test_runtime_live_composed_gate_passing_placeholder_fails_cleanly(
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setenv("MARKET_SENTRY_PROVIDER", "live_composed")
+    monkeypatch.setenv("MARKET_SENTRY_ALLOW_LIVE_DATA", "true")
+    monkeypatch.setenv("MARKET_SENTRY_WATCHLIST", "AAPL")
+    monkeypatch.setenv("ALPACA_API_KEY", "visible-key-should-not-print")
+    monkeypatch.setenv("ALPACA_API_SECRET", "visible-secret-should-not-print")
+    monkeypatch.setenv("FMP_API_KEY", "visible-fmp-should-not-print")
+
+    exit_code = main([])
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert (
+        "Provider configuration error: live_composed is reserved for a future "
+        "live provider and is not active yet."
+    ) in output
+    assert "visible-key-should-not-print" not in output
+    assert "visible-secret-should-not-print" not in output
+    assert "visible-fmp-should-not-print" not in output
+    assert "Market Sentry" not in output
+    assert "Qualified Results" not in output
+    assert "Traceback" not in output
+
+
 def test_runtime_unknown_provider_fails_cleanly(monkeypatch, capsys) -> None:
     monkeypatch.setenv("MARKET_SENTRY_PROVIDER", "bad_provider")
 
