@@ -38,6 +38,8 @@ Phase 11E adds an offline composed provider harness named `composed_fixture`. It
 
 Phase 11F adds a standard-library HTTP transport for future live-provider phases. It is not active at runtime, tests mock standard-library networking and make no real network calls, and current runtime modes still require no API credentials. Secrets should not be committed.
 
+Phase 12A adds a strict config gate for a future live composed provider named `live_composed`. Live data is not active yet; the gate only validates that `MARKET_SENTRY_ALLOW_LIVE_DATA=true` or equivalent, a non-empty watchlist, Alpaca credentials, and an FMP key are present before future live mode could be considered. Runtime still defaults to mock, fixture and composed_fixture remain offline, Alpaca remains a placeholder, FMP remains inactive, and secrets should not be committed.
+
 ## Development
 
 Install the local development dependencies with:
