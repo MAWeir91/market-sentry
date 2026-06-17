@@ -32,6 +32,8 @@ Phase 11B adds an Alpaca snapshot fetcher skeleton behind the generic HTTP trans
 
 Phase 11C adds an FMP float/reference fetcher skeleton behind the generic HTTP transport abstraction. Tests use fake transport responses only, runtime still defaults to mock, fixture remains offline/static, and Alpaca/FMP live providers are not active. FMP provides float/reference data but is not a scanner-ready provider by itself. Do not commit credentials.
 
+Phase 11D adds a live-data candidate builder skeleton for future provider phases. It combines Alpaca movement data, FMP float data, and explicit relative-volume input through offline/fake tests only. Runtime still defaults to mock, fixture remains offline/static, Alpaca/FMP live providers are not active, and relative volume must not be fabricated. Do not commit credentials.
+
 ## Development
 
 Install the local development dependencies with:
