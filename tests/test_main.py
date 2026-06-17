@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import market_sentry.__main__ as package_main
 from market_sentry.alerts import SpeakerResult, collect_alert_messages, generate_alerts
+from market_sentry.config import AppConfig
 from market_sentry.data import MockMarketDataProvider
 from market_sentry.main import (
     DEFAULT_INTERVAL_SECONDS,
@@ -13,8 +14,10 @@ from market_sentry.main import (
     main,
     normalize_interval,
     parse_args,
+    render_live_readiness_report,
     render_report,
 )
+from market_sentry.live_readiness import evaluate_live_readiness
 from market_sentry.scanner import ScannerEngine
 
 
@@ -140,6 +143,119 @@ def test_main_prints_mock_scanner_report(capsys) -> None:
     assert "Mock Scanner Report" in output
 
 
+def test_render_live_readiness_report_includes_stable_content() -> None:
+    report = evaluate_live_readiness(AppConfig())
+
+    rendered = render_live_readiness_report(report)
+
+    assert "Market Sentry Live Readiness" in rendered
+    assert "Status: NOT_READY" in rendered
+    assert "[FAIL] PROVIDER_SELECTED" in rendered
+    assert "[FAIL] RELATIVE_VOLUME_SOURCE_PRESENT" in rendered
+    assert "Summary: Live readiness checks failed:" in rendered
+    assert "does not call APIs" in rendered
+    assert "does not activate live_composed" in rendered
+
+
+def test_live_readiness_cli_prints_report_and_exits_one(capsys) -> None:
+    exit_code = main(["--live-readiness"])
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Market Sentry Live Readiness" in output
+    assert "Status: NOT_READY" in output
+    assert "PROVIDER_SELECTED" in output
+    assert "RELATIVE_VOLUME_SOURCE_PRESENT" in output
+    assert "Mock Scanner Report" not in output
+    assert "Qualified Results" not in output
+
+
+def test_live_readiness_cli_does_not_create_market_data_provider(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    def fail_provider_creation(_config):
+        raise AssertionError("readiness path should not create providers")
+
+    monkeypatch.setattr(runner, "create_market_data_provider", fail_provider_creation)
+
+    exit_code = main(["--live-readiness"])
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Market Sentry Live Readiness" in output
+
+
+def test_live_readiness_cli_exits_zero_when_preconditions_pass(
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setenv("MARKET_SENTRY_PROVIDER", "live_composed")
+    monkeypatch.setenv("MARKET_SENTRY_ALLOW_LIVE_DATA", "true")
+    monkeypatch.setenv("MARKET_SENTRY_WATCHLIST", "AAPL")
+    monkeypatch.setenv("ALPACA_API_KEY", "placeholder-key")
+    monkeypatch.setenv("ALPACA_API_SECRET", "placeholder-secret")
+    monkeypatch.setenv("FMP_API_KEY", "placeholder-fmp-key")
+
+    exit_code = main(["--live-readiness", "--relative-volume-configured"])
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Status: READY" in output
+    assert "[PASS] PROVIDER_SELECTED" in output
+    assert "[PASS] RELATIVE_VOLUME_SOURCE_PRESENT" in output
+    assert "placeholder-key" not in output
+    assert "placeholder-secret" not in output
+    assert "placeholder-fmp-key" not in output
+
+
+def test_live_readiness_cli_rvol_check_fails_without_explicit_flag(
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setenv("MARKET_SENTRY_PROVIDER", "live_composed")
+    monkeypatch.setenv("MARKET_SENTRY_ALLOW_LIVE_DATA", "true")
+    monkeypatch.setenv("MARKET_SENTRY_WATCHLIST", "AAPL")
+    monkeypatch.setenv("ALPACA_API_KEY", "placeholder-key")
+    monkeypatch.setenv("ALPACA_API_SECRET", "placeholder-secret")
+    monkeypatch.setenv("FMP_API_KEY", "placeholder-fmp-key")
+
+    exit_code = main(["--live-readiness"])
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Status: NOT_READY" in output
+    assert "[FAIL] RELATIVE_VOLUME_SOURCE_PRESENT" in output
+    assert "[PASS] PROVIDER_SELECTED" in output
+
+
+def test_live_readiness_cli_output_is_secret_safe(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("MARKET_SENTRY_PROVIDER", "live_composed")
+    monkeypatch.setenv("MARKET_SENTRY_ALLOW_LIVE_DATA", "true")
+    monkeypatch.setenv("MARKET_SENTRY_WATCHLIST", "AAPL")
+    monkeypatch.setenv("ALPACA_API_KEY", "visible-key-should-not-print")
+    monkeypatch.setenv("ALPACA_API_SECRET", "visible-secret-should-not-print")
+    monkeypatch.setenv("FMP_API_KEY", "visible-fmp-should-not-print")
+
+    exit_code = main(["--live-readiness", "--relative-volume-configured"])
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "visible-key-should-not-print" not in output
+    assert "visible-secret-should-not-print" not in output
+    assert "visible-fmp-should-not-print" not in output
+    assert "Alpaca API key is present." in output
+    assert "Alpaca API secret is present." in output
+    assert "FMP API key is present." in output
+
+
 def test_provider_display_label_maps_active_offline_providers() -> None:
     assert get_provider_display_label("mock") == "Mock Scanner Report"
     assert get_provider_display_label(" FIXTURE ") == "Fixture Scanner Report"
@@ -155,6 +271,15 @@ def test_parse_args_has_default_interval_and_single_run_mode() -> None:
     assert args.loop is False
     assert args.speak is False
     assert args.interval == DEFAULT_INTERVAL_SECONDS
+    assert args.live_readiness is False
+    assert args.relative_volume_configured is False
+
+
+def test_parse_args_supports_live_readiness_flags() -> None:
+    args = parse_args(["--live-readiness", "--relative-volume-configured"])
+
+    assert args.live_readiness is True
+    assert args.relative_volume_configured is True
 
 
 def test_interval_below_minimum_clamps_to_five_seconds() -> None:
@@ -575,6 +700,10 @@ def test_cli_runner_has_no_external_api_or_trading_behavior() -> None:
     )
 
     assert not {"http", "requests", "socket", "urllib", "os"} & imported_modules
+    assert "StdlibHttpTransport" not in source
+    assert "AlpacaSnapshotFetcher" not in source
+    assert "FMPFloatFetcher" not in source
+    assert ".send(" not in source
     assert "api_key" not in source.lower()
     assert "broker" not in source.lower()
     assert "text_to_speech" not in source.lower()

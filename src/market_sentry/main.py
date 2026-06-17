@@ -21,6 +21,10 @@ from market_sentry.data.factory import (
     create_market_data_provider,
 )
 from market_sentry.data.provider import MarketDataProvider
+from market_sentry.live_readiness import (
+    LiveReadinessReport,
+    evaluate_live_readiness,
+)
 from market_sentry.scanner import ScannerEngine, ScannerResult
 
 DEFAULT_INTERVAL_SECONDS = 30.0
@@ -145,12 +149,35 @@ def render_report(
     return "\n".join(lines)
 
 
+def render_live_readiness_report(report: LiveReadinessReport) -> str:
+    """Render a secret-safe live-readiness preflight report."""
+
+    lines = [
+        "Market Sentry Live Readiness",
+        f"Status: {report.status.value}",
+        "",
+    ]
+    for check in report.checks:
+        marker = "PASS" if check.passed else "FAIL"
+        lines.append(f"[{marker}] {check.name.value} - {check.message}")
+    lines.extend(
+        [
+            "",
+            f"Summary: {report.summary}",
+            "Note: This preflight does not call APIs and does not activate live_composed.",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse the small Market Sentry CLI surface."""
 
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--loop", action="store_true")
     parser.add_argument("--interval", type=float, default=DEFAULT_INTERVAL_SECONDS)
+    parser.add_argument("--live-readiness", action="store_true")
+    parser.add_argument("--relative-volume-configured", action="store_true")
     speak_group = parser.add_mutually_exclusive_group()
     speak_group.add_argument("--speak", action="store_true", dest="speak")
     speak_group.add_argument("--no-speak", action="store_false", dest="speak")
@@ -259,6 +286,15 @@ def main(
 
     args = parse_args(argv)
     interval_seconds = normalize_interval(args.interval)
+
+    if args.live_readiness:
+        config = load_config()
+        report = evaluate_live_readiness(
+            config,
+            relative_volume_configured=args.relative_volume_configured,
+        )
+        print(render_live_readiness_report(report))
+        return 0 if report.ready else 1
 
     try:
         config = load_config()

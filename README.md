@@ -50,6 +50,8 @@ Phase 12E adds a relative-volume provider interface for future live-provider pha
 
 Phase 12F adds live-readiness diagnostics for future live-provider phases. Diagnostics validate local preconditions only, do not call Alpaca, FMP, or any network API, and do not activate `live_composed`. Runtime remains mock by default, fixture and composed_fixture remain offline, Alpaca remains a placeholder, `live_composed` remains gated, RVOL source configuration must be explicit and is not fabricated, secrets should not be committed, and trading/order functionality remains out of scope.
 
+Phase 12G exposes those diagnostics through `python -m market_sentry --live-readiness`. Add `--relative-volume-configured` only as an explicit local signal that RVOL source configuration exists; the command does not calculate RVOL, call Alpaca/FMP or any network API, activate `live_composed`, build providers, or render the scanner report.
+
 ## Development
 
 Install the local development dependencies with:
@@ -115,3 +117,15 @@ python -m market_sentry --loop --interval 30 --speak
 The loop interval defaults to 30 seconds. Values below 5 seconds are clamped to 5 seconds. Press `Ctrl+C` to stop loop mode cleanly.
 
 Loop mode still uses local static mock data only. It does not connect to market-data APIs, WebSockets, brokerage trading/order APIs, or any service that can place trades.
+
+Run the live-readiness preflight without activating live data:
+
+```powershell
+python -m market_sentry --live-readiness
+```
+
+When an explicit RVOL source has been configured outside the CLI, include:
+
+```powershell
+python -m market_sentry --live-readiness --relative-volume-configured
+```
