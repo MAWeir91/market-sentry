@@ -74,6 +74,8 @@ Phase 13J adds a deterministic offline intraday RVOL scenario fixture catalog. I
 
 Phase 14A adds an injected Alpaca historical intraday-bars fetcher skeleton. It returns one raw, inspectable response page for explicitly supplied symbols, surfaces pagination tokens without following them automatically, and does not build RVOL inputs, fetch a watchlist, register a runtime provider, or activate live mode. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
 
+Phase 14B adds a strict offline adapter from raw Alpaca historical-bar mappings to Phase 13F intraday input models. Caller-supplied metadata determines symbol, session ID, bucket, and cutoff; the adapter parses timestamps but does not fetch data, infer sessions, convert time zones, validate downstream volume, calculate RVOL, register a runtime provider, or activate live mode. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
+
 ## Development
 
 Install the local development dependencies with:
