@@ -62,6 +62,8 @@ Phase 13D adds an offline historical-volume input adapter. It calculates histori
 
 Phase 13E adds an offline time-of-day-normalized RVOL calculation skeleton. It uses caller-supplied current cumulative volume and historical cumulative observations at the same bucket, does not fetch market data, does not activate live mode, and does not handle market-calendar/session normalization. Missing or invalid input is not fabricated; `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
 
+Phase 13F adds an offline intraday bucket-construction adapter. It sums caller-supplied validated intraday bars through a caller-supplied cutoff, builds Phase 13E inputs without calculating final RVOL, does not fetch data or infer calendar/session/time-zone rules, and does not activate live mode. Missing or invalid inputs are never fabricated; `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
+
 ## Development
 
 Install the local development dependencies with:
