@@ -70,6 +70,8 @@ Phase 13H adds an offline intraday RVOL fixture provider. It exposes Phase 13G f
 
 Phase 13I adds an offline intraday RVOL candidate-composition harness. It feeds explicit Phase 13H RVOL mappings into the existing candidate builder with local fixture sources, exposes candidates and skipped-symbol diagnostics without fetching data or activating live mode, and does not fabricate RVOL, snapshot, float, or candidate data. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
 
+Phase 13J adds a deterministic offline intraday RVOL scenario fixture catalog. It supplies explicit reusable test scenarios for the existing offline RVOL-to-candidate path, does not fetch data, register a runtime provider, infer market sessions, or activate live mode. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
+
 ## Development
 
 Install the local development dependencies with:
