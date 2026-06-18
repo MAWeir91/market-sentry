@@ -92,6 +92,8 @@ Phase 14I adds an offline session-metadata manifest adapter. It validates explic
 
 Phase 14J adds an offline coordinator that runs the Phase 14I session-manifest adapter and Phase 14G historical-to-TOD RVOL harness in sequence. It preserves both artifacts and distinguishes complete, partial-manifest, manifest-failure, and harness-failure outcomes. It does not fetch data, register a runtime provider, activate live mode, or add trading/order functionality. `live_composed` remains reserved/inactive.
 
+Phase 14K adds a deterministic offline workflow scenario catalog for the existing Phase 14I to Phase 14J to Phase 14G path. Named raw-input scenarios exercise complete, partial, invalid-manifest, duplicate-manifest, historical-page, historical-cutoff, current-session, identity-mismatch, and final TOD-RVOL validation outcomes. It does not fetch data, register a runtime provider, activate live mode, or add trading/order behavior. `live_composed` remains reserved/inactive.
+
 ## Development
 
 Install the local development dependencies with:
