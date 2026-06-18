@@ -66,6 +66,8 @@ Phase 13F adds an offline intraday bucket-construction adapter. It sums caller-s
 
 Phase 13G adds an offline end-to-end intraday RVOL harness. It composes caller-supplied fixture series through the existing Phase 13F and 13E modules, does not fetch market data, infer calendar/session behavior, or activate live mode, and does not fabricate missing RVOL data. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
 
+Phase 13H adds an offline intraday RVOL fixture provider. It exposes Phase 13G fixture-harness results through the existing relative-volume provider contract, returns only successful requested RVOL values, never fabricates missing values, and does not fetch data, register a runtime provider, or activate live mode. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
+
 ## Development
 
 Install the local development dependencies with:
