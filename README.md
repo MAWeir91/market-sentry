@@ -58,6 +58,8 @@ Phase 13B documents the future real relative-volume strategy only. The recommend
 
 Phase 13C adds an offline relative-volume calculation skeleton. It calculates RVOL only from supplied current-volume and historical-average-volume inputs, does not fetch data, does not activate live mode, and does not fabricate missing or invalid RVOL. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
 
+Phase 13D adds an offline historical-volume input adapter. It calculates historical averages only from supplied completed daily bars, does not fetch data, is not time-of-day normalized, does not unblock production live activation, and does not fabricate missing or invalid history. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
+
 ## Development
 
 Install the local development dependencies with:
