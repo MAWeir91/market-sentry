@@ -86,6 +86,8 @@ Phase 14F adds an offline current-session TOD RVOL composer. It combines a succe
 
 Phase 14G adds a thin offline end-to-end historical-to-TOD RVOL harness. It orchestrates the existing Phase 14D historical-session assembly, Phase 14E baseline composition, and Phase 14F final TOD RVOL composition layers while retaining all stage artifacts and diagnostics for one explicit input run. It does not fetch data, paginate, infer calendars, register a runtime provider, or activate live mode. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
 
+Phase 14H adds a deterministic offline scenario fixture catalog for the existing Phase 14G historical-to-TOD RVOL harness. Named raw-input scenarios exercise valid history, insufficient or incomplete history, historical and current validation failures, identity mismatch, and a final Phase 13E validation failure. It does not fetch data, register a runtime provider, or activate live mode. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
+
 ## Development
 
 Install the local development dependencies with:
