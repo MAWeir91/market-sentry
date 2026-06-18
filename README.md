@@ -80,6 +80,8 @@ Phase 14C defines the explicit historical session and bucket metadata policy req
 
 Phase 14D adds an offline historical-session assembler that applies explicit caller session metadata to a raw historical-bars page before delegating eligible session bars to the Phase 14B adapter. It excludes incomplete page collections and incomplete or invalid sessions, does not infer calendars, and adds no runtime provider, network behavior, pagination, candidate composition, or live activation. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
 
+Phase 14E adds an offline historical baseline composer. It evaluates eligible Phase 14D session series through the existing Phase 13F cumulative-volume validator and produces ordered historical cumulative-volume observations for a later Phase 13E TOD RVOL calculation. It does not build a current-series input, calculate final RVOL, fetch data, infer calendars, register a runtime provider, or activate live mode. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
+
 ## Development
 
 Install the local development dependencies with:
