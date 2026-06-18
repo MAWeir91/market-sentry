@@ -72,6 +72,8 @@ Phase 13I adds an offline intraday RVOL candidate-composition harness. It feeds 
 
 Phase 13J adds a deterministic offline intraday RVOL scenario fixture catalog. It supplies explicit reusable test scenarios for the existing offline RVOL-to-candidate path, does not fetch data, register a runtime provider, infer market sessions, or activate live mode. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
 
+Phase 14A adds an injected Alpaca historical intraday-bars fetcher skeleton. It returns one raw, inspectable response page for explicitly supplied symbols, surfaces pagination tokens without following them automatically, and does not build RVOL inputs, fetch a watchlist, register a runtime provider, or activate live mode. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
+
 ## Development
 
 Install the local development dependencies with:
