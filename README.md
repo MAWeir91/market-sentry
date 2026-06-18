@@ -60,6 +60,8 @@ Phase 13C adds an offline relative-volume calculation skeleton. It calculates RV
 
 Phase 13D adds an offline historical-volume input adapter. It calculates historical averages only from supplied completed daily bars, does not fetch data, is not time-of-day normalized, does not unblock production live activation, and does not fabricate missing or invalid history. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
 
+Phase 13E adds an offline time-of-day-normalized RVOL calculation skeleton. It uses caller-supplied current cumulative volume and historical cumulative observations at the same bucket, does not fetch market data, does not activate live mode, and does not handle market-calendar/session normalization. Missing or invalid input is not fabricated; `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
+
 ## Development
 
 Install the local development dependencies with:
