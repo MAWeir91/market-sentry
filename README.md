@@ -78,6 +78,8 @@ Phase 14B adds a strict offline adapter from raw Alpaca historical-bar mappings 
 
 Phase 14C defines the explicit historical session and bucket metadata policy required before real raw bars can form a time-of-day RVOL baseline. It does not infer calendars, sessions, early closes, halts, time zones, cutoff metadata, or page completeness, and adds no runtime provider, network behavior, RVOL calculation, or live activation. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
 
+Phase 14D adds an offline historical-session assembler that applies explicit caller session metadata to a raw historical-bars page before delegating eligible session bars to the Phase 14B adapter. It excludes incomplete page collections and incomplete or invalid sessions, does not infer calendars, and adds no runtime provider, network behavior, pagination, candidate composition, or live activation. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
+
 ## Development
 
 Install the local development dependencies with:
