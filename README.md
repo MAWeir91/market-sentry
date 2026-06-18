@@ -82,6 +82,8 @@ Phase 14D adds an offline historical-session assembler that applies explicit cal
 
 Phase 14E adds an offline historical baseline composer. It evaluates eligible Phase 14D session series through the existing Phase 13F cumulative-volume validator and produces ordered historical cumulative-volume observations for a later Phase 13E TOD RVOL calculation. It does not build a current-series input, calculate final RVOL, fetch data, infer calendars, register a runtime provider, or activate live mode. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
 
+Phase 14F adds an offline current-session TOD RVOL composer. It combines a successful Phase 14E baseline artifact with one explicit current intraday series, reuses Phase 13F for current cumulative volume, and reuses Phase 13E for the final time-of-day RVOL calculation. It does not fetch data, infer sessions or calendars, register a runtime provider, or activate live mode. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
+
 ## Development
 
 Install the local development dependencies with:
