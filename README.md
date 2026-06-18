@@ -90,6 +90,8 @@ Phase 14H adds a deterministic offline scenario fixture catalog for the existing
 
 Phase 14I adds an offline session-metadata manifest adapter. It validates explicit caller-supplied historical session records and emits ordered Phase 14G-compatible metadata objects with per-record diagnostics. It does not inspect raw bars, infer calendars or sessions, fetch data, register a runtime provider, or activate live mode. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
 
+Phase 14J adds an offline coordinator that runs the Phase 14I session-manifest adapter and Phase 14G historical-to-TOD RVOL harness in sequence. It preserves both artifacts and distinguishes complete, partial-manifest, manifest-failure, and harness-failure outcomes. It does not fetch data, register a runtime provider, activate live mode, or add trading/order functionality. `live_composed` remains reserved/inactive.
+
 ## Development
 
 Install the local development dependencies with:
