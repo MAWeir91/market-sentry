@@ -76,6 +76,8 @@ Phase 14A adds an injected Alpaca historical intraday-bars fetcher skeleton. It 
 
 Phase 14B adds a strict offline adapter from raw Alpaca historical-bar mappings to Phase 13F intraday input models. Caller-supplied metadata determines symbol, session ID, bucket, and cutoff; the adapter parses timestamps but does not fetch data, infer sessions, convert time zones, validate downstream volume, calculate RVOL, register a runtime provider, or activate live mode. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
 
+Phase 14C defines the explicit historical session and bucket metadata policy required before real raw bars can form a time-of-day RVOL baseline. It does not infer calendars, sessions, early closes, halts, time zones, cutoff metadata, or page completeness, and adds no runtime provider, network behavior, RVOL calculation, or live activation. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
+
 ## Development
 
 Install the local development dependencies with:
