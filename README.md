@@ -64,6 +64,8 @@ Phase 13E adds an offline time-of-day-normalized RVOL calculation skeleton. It u
 
 Phase 13F adds an offline intraday bucket-construction adapter. It sums caller-supplied validated intraday bars through a caller-supplied cutoff, builds Phase 13E inputs without calculating final RVOL, does not fetch data or infer calendar/session/time-zone rules, and does not activate live mode. Missing or invalid inputs are never fabricated; `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
 
+Phase 13G adds an offline end-to-end intraday RVOL harness. It composes caller-supplied fixture series through the existing Phase 13F and 13E modules, does not fetch market data, infer calendar/session behavior, or activate live mode, and does not fabricate missing RVOL data. `live_composed` remains reserved/inactive, and trading/order functionality remains out of scope.
+
 ## Development
 
 Install the local development dependencies with:
