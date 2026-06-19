@@ -180,6 +180,20 @@ python -m market_sentry --local-json-preflight <INPUT_PATH> --local-json-preflig
 
 The optional output path receives the exact same UTF-8 report shown in the terminal. The command reads only `INPUT_PATH` and writes only `OUTPUT_PATH`. It does not create parent directories, discover files, activate providers, scan candidates, call APIs, or play voice alerts. Use distinct input and output paths.
 
+Run a manual two-path local bundle preflight with:
+
+```powershell
+python -m market_sentry --local-json-bundle-preflight <METADATA_PATH> <BUNDLE_PATH>
+```
+
+Optional two-path report export:
+
+```powershell
+python -m market_sentry --local-json-bundle-preflight <METADATA_PATH> <BUNDLE_PATH> --local-json-bundle-preflight-report <REPORT_PATH>
+```
+
+The metadata path is first and the historical RVOL bundle path is second. This command reads only those explicit local input paths and optionally writes only the explicit report path. It does not create parent directories, discover files, activate providers, scan candidates, call APIs, or play voice alerts. Use a report path distinct from both input paths. This is offline diagnostics only, not live analysis or trading behavior.
+
 Run the live-readiness preflight without activating live data:
 
 ```powershell

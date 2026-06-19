@@ -12,6 +12,7 @@ from market_sentry.data import MockMarketDataProvider
 from market_sentry.data.json_historical_session_metadata_source import (
     JsonHistoricalSessionMetadataFileSourceError,
 )
+from market_sentry.data.json_historical_rvol_bundle import JsonHistoricalRvolBundleError
 from market_sentry.data.local_json_metadata_preflight_scenario_catalog import (
     get_local_json_metadata_preflight_scenario,
 )
@@ -287,6 +288,8 @@ def test_parse_args_has_default_interval_and_single_run_mode() -> None:
     assert args.relative_volume_configured is False
     assert args.local_json_preflight is None
     assert args.local_json_preflight_report is None
+    assert args.local_json_bundle_preflight is None
+    assert args.local_json_bundle_preflight_report is None
 
 
 def test_parse_args_supports_local_json_preflight_path() -> None:
@@ -299,6 +302,27 @@ def test_parse_args_supports_local_json_preflight_report_path() -> None:
     args = parse_args(["--local-json-preflight-report", "report.txt"])
 
     assert args.local_json_preflight_report == Path("report.txt")
+
+
+def test_parse_args_supports_local_json_bundle_preflight_paths() -> None:
+    args = parse_args(
+        [
+            "--local-json-bundle-preflight",
+            "metadata.json",
+            "bundle.json",
+        ]
+    )
+
+    assert args.local_json_bundle_preflight == [
+        Path("metadata.json"),
+        Path("bundle.json"),
+    ]
+
+
+def test_parse_args_supports_local_json_bundle_preflight_report_path() -> None:
+    args = parse_args(["--local-json-bundle-preflight-report", "bundle-report.txt"])
+
+    assert args.local_json_bundle_preflight_report == Path("bundle-report.txt")
 
 
 def test_parse_args_supports_live_readiness_flags() -> None:
@@ -358,6 +382,100 @@ def _partial_preflight_result(tmp_path):
         scenario,
         tmp_path / "partial-helper.json",
     ).result
+
+
+def _bundle_dt_tag(day: int, minute: int = 35) -> dict[str, str]:
+    return {"$datetime": f"2026-01-{day:02d}T09:{minute:02d}:00Z"}
+
+
+def _bundle_raw_bar(day: int, minute: int, volume: int) -> dict[str, object]:
+    return {
+        "t": f"2026-01-{day:02d}T09:{minute:02d}:00Z",
+        "v": volume,
+        "o": 1.0,
+        "h": 1.0,
+        "l": 1.0,
+        "c": 1.0,
+    }
+
+
+def _bundle_query(**overrides) -> dict[str, object]:
+    value = {
+        "timeframe": "1Min",
+        "start": "2026-01-02T09:30:00Z",
+        "end": "2026-01-21T10:00:00Z",
+        "limit": 1000,
+        "page_token": None,
+        "sort": "asc",
+    }
+    value.update(overrides)
+    return value
+
+
+def _bundle_payload() -> dict[str, object]:
+    first_page_bars = [_bundle_raw_bar(2, 31, 25)]
+    second_page_bars = [_bundle_raw_bar(2, 35, 75)]
+    for day in range(3, 12):
+        first_page_bars.append(_bundle_raw_bar(day, 35, 100))
+    for day in range(12, 22):
+        second_page_bars.append(_bundle_raw_bar(day, 35, 100))
+    return {
+        "schema_version": 1,
+        "collection": {
+            "request": {
+                "symbols": ["RVOL"],
+                "initial_query": _bundle_query(),
+                "max_pages": 5,
+            },
+            "collected_pages": [
+                {
+                    "index": 0,
+                    "query": _bundle_query(page_token="p0"),
+                    "page": {
+                        "requested_symbols": ["RVOL"],
+                        "bars_by_symbol": {"RVOL": first_page_bars},
+                        "next_page_token": None,
+                    },
+                },
+                {
+                    "index": 1,
+                    "query": _bundle_query(page_token="p1"),
+                    "page": {
+                        "requested_symbols": ["RVOL"],
+                        "bars_by_symbol": {"RVOL": second_page_bars},
+                        "next_page_token": None,
+                    },
+                },
+            ],
+            "status": "COMPLETE",
+            "page_collection_complete": True,
+            "next_page_token": None,
+            "reason": None,
+        },
+        "manifest_request": {
+            "symbol": "RVOL",
+            "bucket": "09:35",
+            "current_session_id": "CURRENT-001",
+        },
+        "current_series": {
+            "symbol": "RVOL",
+            "session_id": "CURRENT-001",
+            "bucket": "09:35",
+            "cutoff_timestamp": _bundle_dt_tag(31),
+            "bars": [{"timestamp": _bundle_dt_tag(31), "volume": 200}],
+        },
+        "harness_request": {
+            "symbol": "RVOL",
+            "bucket": "09:35",
+            "current_session_id": "CURRENT-001",
+            "page_collection_complete": True,
+            "minimum_historical_sessions": 20,
+        },
+    }
+
+
+def _write_bundle(path: Path, payload: dict[str, object] | None = None) -> None:
+    path.write_text(json.dumps(payload or _bundle_payload()), encoding="utf-8")
 
 
 def test_local_json_preflight_success_returns_zero_without_runtime_work(
@@ -1052,6 +1170,458 @@ def test_local_json_preflight_actual_missing_output_parent_exports_error_only(
     assert "Metadata Load:" not in stdout
     assert not output_path.exists()
     assert input_path.read_bytes() == original_input
+
+
+def test_local_json_bundle_report_without_command_returns_dependency_error(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    report_path = tmp_path / "bundle-report.txt"
+    monkeypatch.setattr(
+        runner,
+        "run_manual_local_json_bundle_preflight",
+        lambda *_args: pytest.fail("bundle helper should not run"),
+    )
+
+    exit_code = main(["--local-json-bundle-preflight-report", str(report_path)])
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert output == (
+        "Market Sentry Local JSON Bundle Preflight\n"
+        "Metadata Path: N/A\n"
+        "Bundle Path: N/A\n"
+        f"Report Path: {report_path}\n"
+        "Result: COMMAND_ERROR\n"
+        "Error: --local-json-bundle-preflight-report requires "
+        "--local-json-bundle-preflight\n"
+    )
+    assert not report_path.exists()
+
+
+def test_local_json_old_report_flag_with_bundle_command_uses_old_dependency_error(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    old_report = tmp_path / "old-report.txt"
+    monkeypatch.setattr(
+        runner,
+        "run_manual_local_json_bundle_preflight",
+        lambda *_args: pytest.fail("bundle helper should not run"),
+    )
+
+    exit_code = main(
+        [
+            "--local-json-bundle-preflight",
+            "metadata.json",
+            "bundle.json",
+            "--local-json-preflight-report",
+            str(old_report),
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Market Sentry Local JSON Preflight" in output
+    assert "--local-json-preflight-report requires --local-json-preflight" in output
+    assert not old_report.exists()
+
+
+def test_local_json_bundle_report_flag_with_old_command_uses_bundle_dependency_error(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    bundle_report = tmp_path / "bundle-report.txt"
+    monkeypatch.setattr(
+        runner,
+        "run_manual_local_json_preflight",
+        lambda *_args: pytest.fail("old helper should not run"),
+    )
+
+    exit_code = main(
+        [
+            "--local-json-preflight",
+            "metadata.json",
+            "--local-json-bundle-preflight-report",
+            str(bundle_report),
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Market Sentry Local JSON Bundle Preflight" in output
+    assert "--local-json-bundle-preflight-report requires" in output
+    assert not bundle_report.exists()
+
+
+def test_local_json_preflight_modes_cannot_be_combined(monkeypatch, capsys) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    monkeypatch.setattr(
+        runner,
+        "run_manual_local_json_preflight",
+        lambda *_args: pytest.fail("old helper should not run"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_manual_local_json_bundle_preflight",
+        lambda *_args: pytest.fail("bundle helper should not run"),
+    )
+
+    exit_code = main(
+        [
+            "--local-json-preflight",
+            "metadata.json",
+            "--local-json-bundle-preflight",
+            "metadata.json",
+            "bundle.json",
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert output == (
+        "Market Sentry Local JSON Preflight\n"
+        "Path: N/A\n"
+        "Result: COMMAND_ERROR\n"
+        "Error: --local-json-preflight and --local-json-bundle-preflight "
+        "cannot be combined\n"
+    )
+
+
+def test_local_json_bundle_conflicts_preserve_raw_order_with_voice_flags(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    monkeypatch.setattr(
+        runner,
+        "run_manual_local_json_bundle_preflight",
+        lambda *_args: pytest.fail("bundle helper should not run"),
+    )
+
+    exit_code = main(
+        [
+            "--no-speak",
+            "--local-json-bundle-preflight",
+            "metadata.json",
+            "bundle.json",
+            "--loop",
+            "--speak",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    assert captured.err == ""
+    assert "Market Sentry Local JSON Bundle Preflight" in captured.out
+    assert (
+        "Error: --local-json-bundle-preflight cannot be combined with: "
+        "--no-speak, --loop, --speak"
+    ) in captured.out
+
+
+def test_local_json_bundle_default_interval_allowed(monkeypatch, capsys) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    result = object()
+    monkeypatch.setattr(
+        runner,
+        "run_manual_local_json_bundle_preflight",
+        lambda metadata, bundle: result,
+    )
+    monkeypatch.setattr(
+        runner,
+        "render_manual_local_json_bundle_preflight_report",
+        lambda metadata, bundle, value: "bundle report",
+    )
+    monkeypatch.setattr(
+        runner,
+        "is_manual_local_json_bundle_preflight_success",
+        lambda value: True,
+    )
+
+    exit_code = main(
+        [
+            "--local-json-bundle-preflight",
+            "metadata.json",
+            "bundle.json",
+            "--interval",
+            str(DEFAULT_INTERVAL_SECONDS),
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert output == "bundle report\n"
+
+
+def test_local_json_bundle_non_default_interval_conflicts(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    monkeypatch.setattr(
+        runner,
+        "run_manual_local_json_bundle_preflight",
+        lambda *_args: pytest.fail("bundle helper should not run"),
+    )
+
+    exit_code = main(
+        ["--local-json-bundle-preflight", "metadata.json", "bundle.json", "--interval=10"]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "--interval" in output
+
+
+def test_local_json_bundle_report_cannot_equal_metadata_or_bundle_path(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    monkeypatch.setattr(
+        runner,
+        "run_manual_local_json_bundle_preflight",
+        lambda *_args: pytest.fail("bundle helper should not run"),
+    )
+
+    exit_code = main(
+        [
+            "--local-json-bundle-preflight",
+            "metadata.json",
+            "bundle.json",
+            "--local-json-bundle-preflight-report",
+            "metadata.json",
+        ]
+    )
+    output = capsys.readouterr().out
+    assert exit_code == 2
+    assert "must differ from metadata path" in output
+
+    exit_code = main(
+        [
+            "--local-json-bundle-preflight",
+            "metadata.json",
+            "bundle.json",
+            "--local-json-bundle-preflight-report",
+            "bundle.json",
+        ]
+    )
+    output = capsys.readouterr().out
+    assert exit_code == 2
+    assert "must differ from bundle path" in output
+
+
+def test_local_json_bundle_monkeypatched_success_and_export(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    result = object()
+    report_path = tmp_path / "bundle-report.txt"
+    writes = []
+    monkeypatch.setattr(
+        runner,
+        "run_manual_local_json_bundle_preflight",
+        lambda metadata, bundle: result,
+    )
+    monkeypatch.setattr(
+        runner,
+        "render_manual_local_json_bundle_preflight_report",
+        lambda metadata, bundle, value: "bundle report",
+    )
+    monkeypatch.setattr(
+        runner,
+        "is_manual_local_json_bundle_preflight_success",
+        lambda value: True,
+    )
+    monkeypatch.setattr(
+        runner,
+        "write_manual_local_json_bundle_preflight_report",
+        lambda path, report: writes.append((path, report)),
+    )
+
+    exit_code = main(
+        [
+            "--local-json-bundle-preflight",
+            "metadata.json",
+            "bundle.json",
+            "--local-json-bundle-preflight-report",
+            str(report_path),
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert output == "bundle report\n"
+    assert writes == [(report_path, "bundle report")]
+
+
+def test_local_json_bundle_expected_error_and_export_error_paths(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    report_path = tmp_path / "missing-parent" / "bundle-report.txt"
+    monkeypatch.setattr(
+        runner,
+        "run_manual_local_json_bundle_preflight",
+        lambda *_args: (_ for _ in ()).throw(
+            JsonHistoricalRvolBundleError("UNSUPPORTED_SCHEMA_VERSION")
+        ),
+    )
+
+    exit_code = main(["--local-json-bundle-preflight", "metadata.json", "bundle.json"])
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "Result: ERROR" in output
+    assert "JsonHistoricalRvolBundleError" in output
+
+    monkeypatch.setattr(
+        runner,
+        "write_manual_local_json_bundle_preflight_report",
+        lambda *_args: (_ for _ in ()).throw(OSError("disk unavailable")),
+    )
+    exit_code = main(
+        [
+            "--local-json-bundle-preflight",
+            "metadata.json",
+            "bundle.json",
+            "--local-json-bundle-preflight-report",
+            str(report_path),
+        ]
+    )
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "Result: EXPORT_ERROR" in output
+    assert "disk unavailable" in output
+    assert "Result: ERROR" not in output
+
+
+def test_local_json_bundle_actual_valid_command_and_export(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "create_market_data_provider",
+        lambda _config: pytest.fail("bundle preflight should not create providers"),
+    )
+    scenario = get_local_json_metadata_preflight_scenario(
+        "valid_json_complete_multi_page"
+    )
+    metadata_path = tmp_path / "metadata.json"
+    bundle_path = tmp_path / "bundle.json"
+    report_path = tmp_path / "bundle-report.txt"
+    metadata_path.write_bytes(scenario.fixture_bytes)
+    _write_bundle(bundle_path)
+
+    exit_code = main(
+        [
+            "--local-json-bundle-preflight",
+            str(metadata_path),
+            str(bundle_path),
+            "--local-json-bundle-preflight-report",
+            str(report_path),
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Market Sentry Local JSON Bundle Preflight" in output
+    assert "Input Mode: EXPLICIT_LOCAL_BUNDLE" in output
+    assert "Relative Volume: 2.0x" in output
+    assert "Profile:" not in output
+    assert report_path.read_text(encoding="utf-8") == output.removesuffix("\n")
+
+
+def test_local_json_bundle_actual_invalid_inputs_and_downstream_failure(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "create_market_data_provider",
+        lambda _config: pytest.fail("bundle preflight should not create providers"),
+    )
+    scenario = get_local_json_metadata_preflight_scenario(
+        "valid_json_complete_multi_page"
+    )
+    metadata_path = tmp_path / "metadata.json"
+    metadata_path.write_bytes(scenario.fixture_bytes)
+
+    bad_bundle_path = tmp_path / "bad-bundle.json"
+    bad_bundle_path.write_text(
+        json.dumps({"schema_version": 2}),
+        encoding="utf-8",
+    )
+    exit_code = main(
+        ["--local-json-bundle-preflight", str(metadata_path), str(bad_bundle_path)]
+    )
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "JsonHistoricalRvolBundleError" in output
+    assert "UNSUPPORTED_SCHEMA_VERSION" in output
+
+    bad_metadata_path = tmp_path / "bad-metadata.json"
+    bundle_path = tmp_path / "bundle.json"
+    bad_metadata_path.write_text(
+        json.dumps({"schema_version": 2, "records": []}),
+        encoding="utf-8",
+    )
+    _write_bundle(bundle_path)
+    exit_code = main(
+        ["--local-json-bundle-preflight", str(bad_metadata_path), str(bundle_path)]
+    )
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "JsonHistoricalSessionMetadataFileSourceError" in output
+    assert "UNSUPPORTED_SCHEMA_VERSION" in output
+
+    invalid_volume_payload = _bundle_payload()
+    invalid_volume_payload["current_series"]["bars"][0]["volume"] = False
+    _write_bundle(bundle_path, invalid_volume_payload)
+    exit_code = main(
+        ["--local-json-bundle-preflight", str(metadata_path), str(bundle_path)]
+    )
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "Final: CURRENT_CUMULATIVE_VOLUME_FAILED" in output
+    assert "Final Reason: CURRENT_CUMULATIVE_VOLUME_FAILED:INVALID_INTRADAY_VOLUME" in output
 
 
 def test_interval_below_minimum_clamps_to_five_seconds() -> None:

@@ -28,6 +28,17 @@ from market_sentry.live_readiness import (
     LiveReadinessReport,
     evaluate_live_readiness,
 )
+from market_sentry.local_json_bundle_preflight_cli import (
+    MANUAL_LOCAL_JSON_BUNDLE_PREFLIGHT_EXPECTED_ERRORS,
+    is_manual_local_json_bundle_preflight_success,
+    render_manual_local_json_bundle_preflight_error,
+    render_manual_local_json_bundle_preflight_report,
+    run_manual_local_json_bundle_preflight,
+)
+from market_sentry.local_json_bundle_preflight_report_export import (
+    render_manual_local_json_bundle_preflight_export_error,
+    write_manual_local_json_bundle_preflight_report,
+)
 from market_sentry.local_json_preflight_cli import (
     JsonHistoricalSessionMetadataFileSourceError,
     is_manual_local_json_preflight_success,
@@ -194,6 +205,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--relative-volume-configured", action="store_true")
     parser.add_argument("--local-json-preflight", type=Path, default=None)
     parser.add_argument("--local-json-preflight-report", type=Path, default=None)
+    parser.add_argument(
+        "--local-json-bundle-preflight",
+        type=Path,
+        nargs=2,
+        default=None,
+        metavar=("METADATA_PATH", "BUNDLE_PATH"),
+    )
+    parser.add_argument("--local-json-bundle-preflight-report", type=Path, default=None)
     speak_group = parser.add_mutually_exclusive_group()
     speak_group.add_argument("--speak", action="store_true", dest="speak")
     speak_group.add_argument("--no-speak", action="store_false", dest="speak")
@@ -205,6 +224,8 @@ def _has_local_json_preflight_arg(raw_argv: Sequence[str]) -> bool:
     return any(
         item == "--local-json-preflight"
         or item.startswith("--local-json-preflight=")
+        or item == "--local-json-bundle-preflight"
+        or item.startswith("--local-json-bundle-preflight=")
         for item in raw_argv
     )
 
@@ -291,6 +312,95 @@ def _render_local_json_preflight_same_path_error(
             (
                 "Error: --local-json-preflight-report must differ from "
                 "--local-json-preflight"
+            ),
+        ]
+    )
+
+
+def _render_local_json_bundle_report_dependency_error(report_path: Path) -> str:
+    return "\n".join(
+        [
+            "Market Sentry Local JSON Bundle Preflight",
+            "Metadata Path: N/A",
+            "Bundle Path: N/A",
+            f"Report Path: {report_path}",
+            "Result: COMMAND_ERROR",
+            (
+                "Error: --local-json-bundle-preflight-report requires "
+                "--local-json-bundle-preflight"
+            ),
+        ]
+    )
+
+
+def _render_local_json_preflight_mode_exclusivity_error() -> str:
+    return "\n".join(
+        [
+            "Market Sentry Local JSON Preflight",
+            "Path: N/A",
+            "Result: COMMAND_ERROR",
+            (
+                "Error: --local-json-preflight and --local-json-bundle-preflight "
+                "cannot be combined"
+            ),
+        ]
+    )
+
+
+def _render_local_json_bundle_conflict_error(
+    metadata_path: Path,
+    bundle_path: Path,
+    conflicts: Sequence[str],
+) -> str:
+    return "\n".join(
+        [
+            "Market Sentry Local JSON Bundle Preflight",
+            f"Metadata Path: {metadata_path}",
+            f"Bundle Path: {bundle_path}",
+            "Result: COMMAND_ERROR",
+            (
+                "Error: --local-json-bundle-preflight cannot be combined with: "
+                f"{', '.join(conflicts)}"
+            ),
+        ]
+    )
+
+
+def _render_local_json_bundle_report_same_metadata_error(
+    metadata_path: Path,
+    bundle_path: Path,
+    report_path: Path,
+) -> str:
+    return "\n".join(
+        [
+            "Market Sentry Local JSON Bundle Preflight",
+            f"Metadata Path: {metadata_path}",
+            f"Bundle Path: {bundle_path}",
+            f"Report Path: {report_path}",
+            "Result: COMMAND_ERROR",
+            (
+                "Error: --local-json-bundle-preflight-report must differ from "
+                "metadata path"
+            ),
+        ]
+    )
+
+
+def _render_local_json_bundle_report_same_bundle_error(
+    metadata_path: Path,
+    bundle_path: Path,
+    report_path: Path,
+) -> str:
+    return "\n".join(
+        [
+            "Market Sentry Local JSON Bundle Preflight",
+            f"Metadata Path: {metadata_path}",
+            f"Bundle Path: {bundle_path}",
+            f"Report Path: {report_path}",
+            "Result: COMMAND_ERROR",
+            (
+                "Error: --local-json-bundle-preflight-report must differ from "
+                "bundle path"
             ),
         ]
     )
@@ -398,6 +508,9 @@ def main(
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     args = parse_args(_local_json_preflight_parse_argv(raw_argv))
     interval_seconds = normalize_interval(args.interval)
+    bundle_paths = args.local_json_bundle_preflight
+    bundle_metadata_path = bundle_paths[0] if bundle_paths is not None else None
+    bundle_path = bundle_paths[1] if bundle_paths is not None else None
 
     if (
         args.local_json_preflight_report is not None
@@ -409,6 +522,101 @@ def main(
             )
         )
         return 2
+
+    if (
+        args.local_json_bundle_preflight_report is not None
+        and args.local_json_bundle_preflight is None
+    ):
+        print(
+            _render_local_json_bundle_report_dependency_error(
+                args.local_json_bundle_preflight_report,
+            )
+        )
+        return 2
+
+    if args.local_json_preflight is not None and bundle_paths is not None:
+        print(_render_local_json_preflight_mode_exclusivity_error())
+        return 2
+
+    if bundle_paths is not None:
+        conflicts = _local_json_preflight_conflicts(raw_argv, args)
+        if conflicts:
+            print(
+                _render_local_json_bundle_conflict_error(
+                    bundle_metadata_path,
+                    bundle_path,
+                    conflicts,
+                )
+            )
+            return 2
+
+        if (
+            args.local_json_bundle_preflight_report is not None
+            and args.local_json_bundle_preflight_report == bundle_metadata_path
+        ):
+            print(
+                _render_local_json_bundle_report_same_metadata_error(
+                    bundle_metadata_path,
+                    bundle_path,
+                    args.local_json_bundle_preflight_report,
+                )
+            )
+            return 2
+
+        if (
+            args.local_json_bundle_preflight_report is not None
+            and args.local_json_bundle_preflight_report == bundle_path
+        ):
+            print(
+                _render_local_json_bundle_report_same_bundle_error(
+                    bundle_metadata_path,
+                    bundle_path,
+                    args.local_json_bundle_preflight_report,
+                )
+            )
+            return 2
+
+        exit_code = 1
+        try:
+            result = run_manual_local_json_bundle_preflight(
+                bundle_metadata_path,
+                bundle_path,
+            )
+        except MANUAL_LOCAL_JSON_BUNDLE_PREFLIGHT_EXPECTED_ERRORS as exc:
+            report = render_manual_local_json_bundle_preflight_error(
+                bundle_metadata_path,
+                bundle_path,
+                exc,
+            )
+        else:
+            report = render_manual_local_json_bundle_preflight_report(
+                bundle_metadata_path,
+                bundle_path,
+                result,
+            )
+            exit_code = (
+                0 if is_manual_local_json_bundle_preflight_success(result) else 1
+            )
+
+        if args.local_json_bundle_preflight_report is not None:
+            try:
+                write_manual_local_json_bundle_preflight_report(
+                    args.local_json_bundle_preflight_report,
+                    report,
+                )
+            except OSError as exc:
+                print(
+                    render_manual_local_json_bundle_preflight_export_error(
+                        bundle_metadata_path,
+                        bundle_path,
+                        args.local_json_bundle_preflight_report,
+                        exc,
+                    )
+                )
+                return 1
+
+        print(report)
+        return exit_code
 
     if args.local_json_preflight is not None:
         conflicts = _local_json_preflight_conflicts(raw_argv, args)
