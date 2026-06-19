@@ -172,6 +172,14 @@ python -m market_sentry --local-json-preflight <PATH>
 
 This reads only the explicit local JSON file path and runs it through a fixed offline RVOL diagnostic profile. It does not discover files, activate providers, scan candidates, call APIs, or play voice alerts. It returns 0 only for a complete end-to-end OK result; returned nested diagnostics or expected source errors return nonzero. The command is not live market analysis and does not execute trades.
 
+Optional local report export:
+
+```powershell
+python -m market_sentry --local-json-preflight <INPUT_PATH> --local-json-preflight-report <OUTPUT_PATH>
+```
+
+The optional output path receives the exact same UTF-8 report shown in the terminal. The command reads only `INPUT_PATH` and writes only `OUTPUT_PATH`. It does not create parent directories, discover files, activate providers, scan candidates, call APIs, or play voice alerts. Use distinct input and output paths.
+
 Run the live-readiness preflight without activating live data:
 
 ```powershell

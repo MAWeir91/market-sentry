@@ -286,12 +286,19 @@ def test_parse_args_has_default_interval_and_single_run_mode() -> None:
     assert args.live_readiness is False
     assert args.relative_volume_configured is False
     assert args.local_json_preflight is None
+    assert args.local_json_preflight_report is None
 
 
 def test_parse_args_supports_local_json_preflight_path() -> None:
     args = parse_args(["--local-json-preflight", "metadata.json"])
 
     assert args.local_json_preflight == Path("metadata.json")
+
+
+def test_parse_args_supports_local_json_preflight_report_path() -> None:
+    args = parse_args(["--local-json-preflight-report", "report.txt"])
+
+    assert args.local_json_preflight_report == Path("report.txt")
 
 
 def test_parse_args_supports_live_readiness_flags() -> None:
@@ -575,6 +582,269 @@ def test_local_json_preflight_interval_equals_syntax_conflicts_when_non_default(
     assert "--interval" in output
 
 
+def test_local_json_preflight_report_without_input_returns_command_error(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    report_path = tmp_path / "report.txt"
+    monkeypatch.setattr(
+        runner,
+        "run_manual_local_json_preflight",
+        lambda _path: pytest.fail("preflight should not run"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "write_manual_local_json_preflight_report",
+        lambda *_args: pytest.fail("export should not run"),
+    )
+
+    exit_code = main(["--local-json-preflight-report", str(report_path)])
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert output == (
+        "Market Sentry Local JSON Preflight\n"
+        "Path: N/A\n"
+        f"Report Path: {report_path}\n"
+        "Result: COMMAND_ERROR\n"
+        "Error: --local-json-preflight-report requires --local-json-preflight\n"
+    )
+    assert not report_path.exists()
+
+
+def test_local_json_preflight_same_input_output_path_returns_command_error(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    path = tmp_path / "metadata.json"
+    path.write_text("original", encoding="utf-8")
+    monkeypatch.setattr(
+        runner,
+        "run_manual_local_json_preflight",
+        lambda _path: pytest.fail("preflight should not run"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "write_manual_local_json_preflight_report",
+        lambda *_args: pytest.fail("export should not run"),
+    )
+
+    exit_code = main(
+        [
+            "--local-json-preflight",
+            str(path),
+            "--local-json-preflight-report",
+            str(path),
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert output == (
+        "Market Sentry Local JSON Preflight\n"
+        f"Path: {path}\n"
+        f"Report Path: {path}\n"
+        "Result: COMMAND_ERROR\n"
+        "Error: --local-json-preflight-report must differ from --local-json-preflight\n"
+    )
+    assert path.read_text(encoding="utf-8") == "original"
+
+
+def test_local_json_preflight_conflict_with_report_writes_nothing(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    report_path = tmp_path / "report.txt"
+    monkeypatch.setattr(
+        runner,
+        "run_manual_local_json_preflight",
+        lambda _path: pytest.fail("preflight should not run"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "write_manual_local_json_preflight_report",
+        lambda *_args: pytest.fail("export should not run"),
+    )
+
+    exit_code = main(
+        [
+            "--no-speak",
+            "--local-json-preflight",
+            "metadata.json",
+            "--local-json-preflight-report",
+            str(report_path),
+            "--loop",
+            "--speak",
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert (
+        "Error: --local-json-preflight cannot be combined with: "
+        "--no-speak, --loop, --speak"
+    ) in output
+    assert not report_path.exists()
+
+
+def test_local_json_preflight_full_success_exports_exact_stdout_report(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    result = _successful_preflight_result(tmp_path)
+    report_path = tmp_path / "report.txt"
+    writes = []
+    monkeypatch.setattr(runner, "run_manual_local_json_preflight", lambda _path: result)
+    monkeypatch.setattr(
+        runner,
+        "write_manual_local_json_preflight_report",
+        lambda path, report: writes.append((path, report)),
+    )
+
+    exit_code = main(
+        [
+            "--local-json-preflight",
+            "metadata.json",
+            "--local-json-preflight-report",
+            str(report_path),
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert len(writes) == 1
+    assert writes[0][0] == report_path
+    assert output == writes[0][1] + "\n"
+    assert "Relative Volume: 2.0x" in output
+
+
+def test_local_json_preflight_non_ok_exports_exact_nested_report(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    result = _partial_preflight_result(tmp_path)
+    report_path = tmp_path / "partial-report.txt"
+    writes = []
+    monkeypatch.setattr(runner, "run_manual_local_json_preflight", lambda _path: result)
+    monkeypatch.setattr(
+        runner,
+        "write_manual_local_json_preflight_report",
+        lambda path, report: writes.append((path, report)),
+    )
+
+    exit_code = main(
+        [
+            "--local-json-preflight",
+            "partial.json",
+            "--local-json-preflight-report",
+            str(report_path),
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert len(writes) == 1
+    assert writes[0][0] == report_path
+    assert output == writes[0][1] + "\n"
+    assert "Coordinator: MANIFEST_PARTIAL" in output
+
+
+def test_local_json_preflight_source_error_exports_exact_error_report(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    report_path = tmp_path / "error-report.txt"
+    writes = []
+    monkeypatch.setattr(
+        runner,
+        "run_manual_local_json_preflight",
+        lambda _path: (_ for _ in ()).throw(FileNotFoundError()),
+    )
+    monkeypatch.setattr(
+        runner,
+        "write_manual_local_json_preflight_report",
+        lambda path, report: writes.append((path, report)),
+    )
+
+    exit_code = main(
+        [
+            "--local-json-preflight",
+            "missing.json",
+            "--local-json-preflight-report",
+            str(report_path),
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert len(writes) == 1
+    assert writes[0][0] == report_path
+    assert output == writes[0][1] + "\n"
+    assert "Result: ERROR" in output
+    assert "FileNotFoundError" in output
+
+
+def test_local_json_preflight_export_oserror_prints_only_export_error(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    result = _successful_preflight_result(tmp_path)
+    report_path = tmp_path / "missing-parent" / "report.txt"
+    monkeypatch.setattr(runner, "run_manual_local_json_preflight", lambda _path: result)
+    monkeypatch.setattr(
+        runner,
+        "write_manual_local_json_preflight_report",
+        lambda _path, _report: (_ for _ in ()).throw(
+            OSError("disk unavailable")
+        ),
+    )
+
+    exit_code = main(
+        [
+            "--local-json-preflight",
+            "metadata.json",
+            "--local-json-preflight-report",
+            str(report_path),
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Result: EXPORT_ERROR" in output
+    assert "Error Type: OSError" in output
+    assert "disk unavailable" in output
+    assert "Metadata Load:" not in output
+    assert "Relative Volume: 2.0x" not in output
+
+
 def test_local_json_preflight_actual_valid_json_exits_zero_without_provider(
     monkeypatch,
     capsys,
@@ -645,6 +915,143 @@ def test_local_json_preflight_actual_missing_file_exits_one(
     assert exit_code == 1
     assert "Result: ERROR" in output
     assert "FileNotFoundError" in output
+
+
+def test_local_json_preflight_actual_valid_json_exports_exact_stdout(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "create_market_data_provider",
+        lambda _config: pytest.fail("local preflight should not create providers"),
+    )
+    scenario = get_local_json_metadata_preflight_scenario(
+        "valid_json_complete_multi_page"
+    )
+    input_path = tmp_path / "valid.json"
+    output_path = tmp_path / "report.txt"
+    input_path.write_bytes(scenario.fixture_bytes)
+
+    exit_code = main(
+        [
+            "--local-json-preflight",
+            str(input_path),
+            "--local-json-preflight-report",
+            str(output_path),
+        ]
+    )
+    stdout = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Relative Volume: 2.0x" in stdout
+    assert output_path.read_text(encoding="utf-8") == stdout.removesuffix("\n")
+
+
+def test_local_json_preflight_actual_unsupported_schema_exports_error_report(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "create_market_data_provider",
+        lambda _config: pytest.fail("local preflight should not create providers"),
+    )
+    input_path = tmp_path / "bad-schema.json"
+    output_path = tmp_path / "bad-schema-report.txt"
+    input_path.write_text(
+        json.dumps({"schema_version": 2, "records": []}),
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "--local-json-preflight",
+            str(input_path),
+            "--local-json-preflight-report",
+            str(output_path),
+        ]
+    )
+    stdout = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Result: ERROR" in stdout
+    assert "UNSUPPORTED_SCHEMA_VERSION" in stdout
+    assert output_path.read_text(encoding="utf-8") == stdout.removesuffix("\n")
+
+
+def test_local_json_preflight_actual_missing_input_exports_error_report(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "create_market_data_provider",
+        lambda _config: pytest.fail("local preflight should not create providers"),
+    )
+    input_path = tmp_path / "missing.json"
+    output_path = tmp_path / "missing-report.txt"
+
+    exit_code = main(
+        [
+            "--local-json-preflight",
+            str(input_path),
+            "--local-json-preflight-report",
+            str(output_path),
+        ]
+    )
+    stdout = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Result: ERROR" in stdout
+    assert "FileNotFoundError" in stdout
+    assert output_path.read_text(encoding="utf-8") == stdout.removesuffix("\n")
+
+
+def test_local_json_preflight_actual_missing_output_parent_exports_error_only(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "create_market_data_provider",
+        lambda _config: pytest.fail("local preflight should not create providers"),
+    )
+    scenario = get_local_json_metadata_preflight_scenario(
+        "valid_json_complete_multi_page"
+    )
+    input_path = tmp_path / "valid.json"
+    original_input = scenario.fixture_bytes
+    output_path = tmp_path / "missing-parent" / "report.txt"
+    input_path.write_bytes(original_input)
+
+    exit_code = main(
+        [
+            "--local-json-preflight",
+            str(input_path),
+            "--local-json-preflight-report",
+            str(output_path),
+        ]
+    )
+    stdout = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Result: EXPORT_ERROR" in stdout
+    assert "Metadata Load:" not in stdout
+    assert not output_path.exists()
+    assert input_path.read_bytes() == original_input
 
 
 def test_interval_below_minimum_clamps_to_five_seconds() -> None:

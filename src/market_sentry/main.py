@@ -35,6 +35,10 @@ from market_sentry.local_json_preflight_cli import (
     render_manual_local_json_preflight_report,
     run_manual_local_json_preflight,
 )
+from market_sentry.local_json_preflight_report_export import (
+    render_manual_local_json_preflight_export_error,
+    write_manual_local_json_preflight_report,
+)
 from market_sentry.scanner import ScannerEngine, ScannerResult
 
 DEFAULT_INTERVAL_SECONDS = 30.0
@@ -189,6 +193,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--live-readiness", action="store_true")
     parser.add_argument("--relative-volume-configured", action="store_true")
     parser.add_argument("--local-json-preflight", type=Path, default=None)
+    parser.add_argument("--local-json-preflight-report", type=Path, default=None)
     speak_group = parser.add_mutually_exclusive_group()
     speak_group.add_argument("--speak", action="store_true", dest="speak")
     speak_group.add_argument("--no-speak", action="store_false", dest="speak")
@@ -256,6 +261,36 @@ def _render_local_json_preflight_command_error(
             (
                 "Error: --local-json-preflight cannot be combined with: "
                 f"{', '.join(conflicts)}"
+            ),
+        ]
+    )
+
+
+def _render_local_json_preflight_report_dependency_error(report_path: Path) -> str:
+    return "\n".join(
+        [
+            "Market Sentry Local JSON Preflight",
+            "Path: N/A",
+            f"Report Path: {report_path}",
+            "Result: COMMAND_ERROR",
+            "Error: --local-json-preflight-report requires --local-json-preflight",
+        ]
+    )
+
+
+def _render_local_json_preflight_same_path_error(
+    input_path: Path,
+    report_path: Path,
+) -> str:
+    return "\n".join(
+        [
+            "Market Sentry Local JSON Preflight",
+            f"Path: {input_path}",
+            f"Report Path: {report_path}",
+            "Result: COMMAND_ERROR",
+            (
+                "Error: --local-json-preflight-report must differ from "
+                "--local-json-preflight"
             ),
         ]
     )
@@ -364,6 +399,17 @@ def main(
     args = parse_args(_local_json_preflight_parse_argv(raw_argv))
     interval_seconds = normalize_interval(args.interval)
 
+    if (
+        args.local_json_preflight_report is not None
+        and args.local_json_preflight is None
+    ):
+        print(
+            _render_local_json_preflight_report_dependency_error(
+                args.local_json_preflight_report,
+            )
+        )
+        return 2
+
     if args.local_json_preflight is not None:
         conflicts = _local_json_preflight_conflicts(raw_argv, args)
         if conflicts:
@@ -375,6 +421,19 @@ def main(
             )
             return 2
 
+        if (
+            args.local_json_preflight_report is not None
+            and args.local_json_preflight == args.local_json_preflight_report
+        ):
+            print(
+                _render_local_json_preflight_same_path_error(
+                    args.local_json_preflight,
+                    args.local_json_preflight_report,
+                )
+            )
+            return 2
+
+        exit_code = 1
         try:
             result = run_manual_local_json_preflight(args.local_json_preflight)
         except (
@@ -383,11 +442,35 @@ def main(
             json.JSONDecodeError,
             JsonHistoricalSessionMetadataFileSourceError,
         ) as exc:
-            print(render_manual_local_json_preflight_error(args.local_json_preflight, exc))
-            return 1
+            report = render_manual_local_json_preflight_error(
+                args.local_json_preflight,
+                exc,
+            )
+        else:
+            report = render_manual_local_json_preflight_report(
+                args.local_json_preflight,
+                result,
+            )
+            exit_code = 0 if is_manual_local_json_preflight_success(result) else 1
 
-        print(render_manual_local_json_preflight_report(args.local_json_preflight, result))
-        return 0 if is_manual_local_json_preflight_success(result) else 1
+        if args.local_json_preflight_report is not None:
+            try:
+                write_manual_local_json_preflight_report(
+                    args.local_json_preflight_report,
+                    report,
+                )
+            except OSError as exc:
+                print(
+                    render_manual_local_json_preflight_export_error(
+                        args.local_json_preflight,
+                        args.local_json_preflight_report,
+                        exc,
+                    )
+                )
+                return 1
+
+        print(report)
+        return exit_code
 
     if args.live_readiness:
         config = load_config()
