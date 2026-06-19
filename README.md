@@ -164,6 +164,14 @@ The loop interval defaults to 30 seconds. Values below 5 seconds are clamped to 
 
 Loop mode still uses local static mock data only. It does not connect to market-data APIs, WebSockets, brokerage trading/order APIs, or any service that can place trades.
 
+Run a manual local JSON preflight with:
+
+```powershell
+python -m market_sentry --local-json-preflight <PATH>
+```
+
+This reads only the explicit local JSON file path and runs it through a fixed offline RVOL diagnostic profile. It does not discover files, activate providers, scan candidates, call APIs, or play voice alerts. It returns 0 only for a complete end-to-end OK result; returned nested diagnostics or expected source errors return nonzero. The command is not live market analysis and does not execute trades.
+
 Run the live-readiness preflight without activating live data:
 
 ```powershell

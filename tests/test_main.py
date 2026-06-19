@@ -1,11 +1,23 @@
 import ast
 import inspect
+import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import market_sentry.__main__ as package_main
+import pytest
 from market_sentry.alerts import SpeakerResult, collect_alert_messages, generate_alerts
 from market_sentry.config import AppConfig
 from market_sentry.data import MockMarketDataProvider
+from market_sentry.data.json_historical_session_metadata_source import (
+    JsonHistoricalSessionMetadataFileSourceError,
+)
+from market_sentry.data.local_json_metadata_preflight_scenario_catalog import (
+    get_local_json_metadata_preflight_scenario,
+)
+from market_sentry.data.local_json_metadata_preflight_scenario_harness import (
+    run_local_json_metadata_preflight_scenario,
+)
 from market_sentry.main import (
     DEFAULT_INTERVAL_SECONDS,
     MIN_INTERVAL_SECONDS,
@@ -273,6 +285,13 @@ def test_parse_args_has_default_interval_and_single_run_mode() -> None:
     assert args.interval == DEFAULT_INTERVAL_SECONDS
     assert args.live_readiness is False
     assert args.relative_volume_configured is False
+    assert args.local_json_preflight is None
+
+
+def test_parse_args_supports_local_json_preflight_path() -> None:
+    args = parse_args(["--local-json-preflight", "metadata.json"])
+
+    assert args.local_json_preflight == Path("metadata.json")
 
 
 def test_parse_args_supports_live_readiness_flags() -> None:
@@ -280,6 +299,352 @@ def test_parse_args_supports_live_readiness_flags() -> None:
 
     assert args.live_readiness is True
     assert args.relative_volume_configured is True
+
+
+def test_parse_args_keeps_existing_voice_flag_exclusivity_without_local_preflight() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(["--speak", "--no-speak"])
+
+
+def _fail_if_runtime_work_runs(monkeypatch) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("local preflight should not load config"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "create_market_data_provider",
+        lambda _config: pytest.fail("local preflight should not create providers"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_run_scan",
+        lambda **_kwargs: pytest.fail("local preflight should not scan"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "evaluate_live_readiness",
+        lambda *_args, **_kwargs: pytest.fail(
+            "local preflight should not run readiness"
+        ),
+    )
+
+
+def _successful_preflight_result(tmp_path):
+    scenario = get_local_json_metadata_preflight_scenario(
+        "valid_json_complete_multi_page"
+    )
+    return run_local_json_metadata_preflight_scenario(
+        scenario,
+        tmp_path / "valid-helper.json",
+    ).result
+
+
+def _partial_preflight_result(tmp_path):
+    scenario = get_local_json_metadata_preflight_scenario(
+        "partial_manifest_json_complete_multi_page"
+    )
+    return run_local_json_metadata_preflight_scenario(
+        scenario,
+        tmp_path / "partial-helper.json",
+    ).result
+
+
+def test_local_json_preflight_success_returns_zero_without_runtime_work(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    result = _successful_preflight_result(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        runner,
+        "run_manual_local_json_preflight",
+        lambda path: calls.append(path) or result,
+    )
+
+    exit_code = main(["--local-json-preflight", "metadata.json"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert calls == [Path("metadata.json")]
+    assert "Market Sentry Local JSON Preflight" in output
+    assert "Profile: valid_json_complete_multi_page" in output
+    assert "Metadata Load: LOADED" in output
+    assert "Relative Volume: 2.0x" in output
+
+
+def test_local_json_preflight_non_ok_returns_one_with_nested_diagnostics(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    result = _partial_preflight_result(tmp_path)
+    monkeypatch.setattr(runner, "run_manual_local_json_preflight", lambda _path: result)
+
+    exit_code = main(["--local-json-preflight", "partial.json"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Coordinator: MANIFEST_PARTIAL" in output
+    assert "Manifest: PARTIAL" in output
+    assert "Relative Volume: 2.0x" in output
+
+
+def test_local_json_preflight_file_not_found_renders_error_without_runtime_work(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    monkeypatch.setattr(
+        runner,
+        "run_manual_local_json_preflight",
+        lambda _path: (_ for _ in ()).throw(FileNotFoundError()),
+    )
+
+    exit_code = main(["--local-json-preflight", "missing.json"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Result: ERROR" in output
+    assert "Error Type: FileNotFoundError" in output
+
+
+def test_local_json_preflight_source_error_renders_class_and_message(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    monkeypatch.setattr(
+        runner,
+        "run_manual_local_json_preflight",
+        lambda _path: (_ for _ in ()).throw(
+            JsonHistoricalSessionMetadataFileSourceError(
+                "UNSUPPORTED_SCHEMA_VERSION"
+            )
+        ),
+    )
+
+    exit_code = main(["--local-json-preflight", "bad.json"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "JsonHistoricalSessionMetadataFileSourceError" in output
+    assert "UNSUPPORTED_SCHEMA_VERSION" in output
+
+
+def test_local_json_preflight_invalid_combination_preserves_conflict_order(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    monkeypatch.setattr(
+        runner,
+        "run_manual_local_json_preflight",
+        lambda _path: pytest.fail("helper should not run for command errors"),
+    )
+
+    exit_code = main(
+        [
+            "--loop",
+            "--local-json-preflight",
+            "metadata.json",
+            "--interval",
+            "10",
+            "--speak",
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Result: COMMAND_ERROR" in output
+    assert (
+        "Error: --local-json-preflight cannot be combined with: "
+        "--loop, --interval, --speak"
+    ) in output
+
+
+def test_local_json_preflight_explicit_no_speak_conflicts(monkeypatch, capsys) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    monkeypatch.setattr(
+        runner,
+        "run_manual_local_json_preflight",
+        lambda _path: pytest.fail("helper should not run for command errors"),
+    )
+
+    exit_code = main(["--local-json-preflight", "metadata.json", "--no-speak"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "--no-speak" in output
+
+
+def test_local_json_preflight_both_voice_flags_return_command_error_in_raw_order(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    monkeypatch.setattr(
+        runner,
+        "run_manual_local_json_preflight",
+        lambda _path: pytest.fail("helper should not run for command errors"),
+    )
+
+    exit_code = main(
+        [
+            "--no-speak",
+            "--local-json-preflight",
+            "metadata.json",
+            "--loop",
+            "--speak",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    assert captured.err == ""
+    assert "Result: COMMAND_ERROR" in captured.out
+    assert (
+        "Error: --local-json-preflight cannot be combined with: "
+        "--no-speak, --loop, --speak"
+    ) in captured.out
+
+
+def test_local_json_preflight_default_interval_value_is_allowed(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    result = _successful_preflight_result(tmp_path)
+    monkeypatch.setattr(runner, "run_manual_local_json_preflight", lambda _path: result)
+
+    exit_code = main(
+        [
+            "--local-json-preflight",
+            "metadata.json",
+            "--interval",
+            str(DEFAULT_INTERVAL_SECONDS),
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "COMMAND_ERROR" not in output
+    assert "Relative Volume: 2.0x" in output
+
+
+def test_local_json_preflight_interval_equals_syntax_conflicts_when_non_default(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    monkeypatch.setattr(
+        runner,
+        "run_manual_local_json_preflight",
+        lambda _path: pytest.fail("helper should not run for command errors"),
+    )
+
+    exit_code = main(["--local-json-preflight", "metadata.json", "--interval=10"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "--interval" in output
+
+
+def test_local_json_preflight_actual_valid_json_exits_zero_without_provider(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "create_market_data_provider",
+        lambda _config: pytest.fail("local preflight should not create providers"),
+    )
+    scenario = get_local_json_metadata_preflight_scenario(
+        "valid_json_complete_multi_page"
+    )
+    path = tmp_path / "valid.json"
+    path.write_bytes(scenario.fixture_bytes)
+
+    exit_code = main(["--local-json-preflight", str(path)])
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Relative Volume: 2.0x" in output
+    assert "Provider configuration error" not in output
+
+
+def test_local_json_preflight_actual_unsupported_schema_exits_one(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "create_market_data_provider",
+        lambda _config: pytest.fail("local preflight should not create providers"),
+    )
+    path = tmp_path / "bad-schema.json"
+    path.write_text(json.dumps({"schema_version": 2, "records": []}), encoding="utf-8")
+
+    exit_code = main(["--local-json-preflight", str(path)])
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Result: ERROR" in output
+    assert "JsonHistoricalSessionMetadataFileSourceError" in output
+    assert "UNSUPPORTED_SCHEMA_VERSION" in output
+
+
+def test_local_json_preflight_actual_missing_file_exits_one(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "create_market_data_provider",
+        lambda _config: pytest.fail("local preflight should not create providers"),
+    )
+    path = tmp_path / "missing.json"
+
+    exit_code = main(["--local-json-preflight", str(path)])
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Result: ERROR" in output
+    assert "FileNotFoundError" in output
 
 
 def test_interval_below_minimum_clamps_to_five_seconds() -> None:

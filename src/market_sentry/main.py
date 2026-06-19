@@ -5,6 +5,9 @@ from __future__ import annotations
 import argparse
 from collections.abc import Iterable
 from datetime import datetime, timezone
+import json
+from pathlib import Path
+import sys
 from time import sleep
 from typing import Sequence
 
@@ -24,6 +27,13 @@ from market_sentry.data.provider import MarketDataProvider
 from market_sentry.live_readiness import (
     LiveReadinessReport,
     evaluate_live_readiness,
+)
+from market_sentry.local_json_preflight_cli import (
+    JsonHistoricalSessionMetadataFileSourceError,
+    is_manual_local_json_preflight_success,
+    render_manual_local_json_preflight_error,
+    render_manual_local_json_preflight_report,
+    run_manual_local_json_preflight,
 )
 from market_sentry.scanner import ScannerEngine, ScannerResult
 
@@ -178,11 +188,77 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--interval", type=float, default=DEFAULT_INTERVAL_SECONDS)
     parser.add_argument("--live-readiness", action="store_true")
     parser.add_argument("--relative-volume-configured", action="store_true")
+    parser.add_argument("--local-json-preflight", type=Path, default=None)
     speak_group = parser.add_mutually_exclusive_group()
     speak_group.add_argument("--speak", action="store_true", dest="speak")
     speak_group.add_argument("--no-speak", action="store_false", dest="speak")
     parser.set_defaults(speak=False)
     return parser.parse_args(argv)
+
+
+def _has_local_json_preflight_arg(raw_argv: Sequence[str]) -> bool:
+    return any(
+        item == "--local-json-preflight"
+        or item.startswith("--local-json-preflight=")
+        for item in raw_argv
+    )
+
+
+def _local_json_preflight_parse_argv(raw_argv: Sequence[str]) -> list[str]:
+    if (
+        _has_local_json_preflight_arg(raw_argv)
+        and "--speak" in raw_argv
+        and "--no-speak" in raw_argv
+    ):
+        return [item for item in raw_argv if item not in {"--speak", "--no-speak"}]
+    return list(raw_argv)
+
+
+def _local_json_preflight_conflicts(
+    raw_argv: Sequence[str],
+    args: argparse.Namespace,
+) -> list[str]:
+    conflict_flags = {
+        "--loop",
+        "--live-readiness",
+        "--relative-volume-configured",
+        "--speak",
+        "--no-speak",
+    }
+    conflicts: list[str] = []
+    seen: set[str] = set()
+    interval_conflicts = args.interval != DEFAULT_INTERVAL_SECONDS
+
+    for item in raw_argv:
+        conflict = None
+        if item in conflict_flags:
+            conflict = item
+        elif item == "--interval" or item.startswith("--interval="):
+            if interval_conflicts:
+                conflict = "--interval"
+
+        if conflict is not None and conflict not in seen:
+            conflicts.append(conflict)
+            seen.add(conflict)
+
+    return conflicts
+
+
+def _render_local_json_preflight_command_error(
+    path: Path,
+    conflicts: Sequence[str],
+) -> str:
+    return "\n".join(
+        [
+            "Market Sentry Local JSON Preflight",
+            f"Path: {path}",
+            "Result: COMMAND_ERROR",
+            (
+                "Error: --local-json-preflight cannot be combined with: "
+                f"{', '.join(conflicts)}"
+            ),
+        ]
+    )
 
 
 def normalize_interval(interval_seconds: float) -> float:
@@ -284,8 +360,34 @@ def main(
 ) -> int:
     """Run the local mock provider through the scanner and print a report."""
 
-    args = parse_args(argv)
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    args = parse_args(_local_json_preflight_parse_argv(raw_argv))
     interval_seconds = normalize_interval(args.interval)
+
+    if args.local_json_preflight is not None:
+        conflicts = _local_json_preflight_conflicts(raw_argv, args)
+        if conflicts:
+            print(
+                _render_local_json_preflight_command_error(
+                    args.local_json_preflight,
+                    conflicts,
+                )
+            )
+            return 2
+
+        try:
+            result = run_manual_local_json_preflight(args.local_json_preflight)
+        except (
+            OSError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            JsonHistoricalSessionMetadataFileSourceError,
+        ) as exc:
+            print(render_manual_local_json_preflight_error(args.local_json_preflight, exc))
+            return 1
+
+        print(render_manual_local_json_preflight_report(args.local_json_preflight, result))
+        return 0 if is_manual_local_json_preflight_success(result) else 1
 
     if args.live_readiness:
         config = load_config()
