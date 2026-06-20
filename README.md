@@ -94,6 +94,8 @@ Phase 14J adds an offline coordinator that runs the Phase 14I session-manifest a
 
 Phase 14K adds a deterministic offline workflow scenario catalog for the existing Phase 14I to Phase 14J to Phase 14G path. Named raw-input scenarios exercise complete, partial, invalid-manifest, duplicate-manifest, historical-page, historical-cutoff, current-session, identity-mismatch, and final TOD-RVOL validation outcomes. It does not fetch data, register a runtime provider, activate live mode, or add trading/order behavior. `live_composed` remains reserved/inactive.
 
+Phase 18A activates `live_composed` for one-shot scanner runs only. A run requires a configured watchlist, Alpaca credentials, an FMP key, `MARKET_SENTRY_ALLOW_LIVE_DATA=true`, and an explicit local RVOL artifact manifest whose metadata/bundle pair preflights successfully for every watchlist symbol before any live transport is constructed. The scanner may then request live Alpaca snapshots and live FMP float data, while RVOL comes from explicit local artifacts and is not refreshed by the scanner command. Loop mode remains unavailable for `live_composed`, and trading/order functionality remains out of scope.
+
 ## Development
 
 Install the local development dependencies with:
@@ -208,7 +210,7 @@ Run the live-readiness preflight without activating live data:
 python -m market_sentry --live-readiness
 ```
 
-`--live-readiness` performs local checks only. It does not call Alpaca, FMP, or any network API, does not activate `live_composed`, and does not render the scanner report. `live_composed` remains reserved and inactive as a scanner provider, Alpaca remains a placeholder, and trading/order functionality is out of scope.
+`--live-readiness` performs local checks only. It does not call Alpaca, FMP, or any network API, does not read or preflight RVOL artifacts, does not activate `live_composed`, and does not render the scanner report. `live_composed` is available only for one-shot scanner runs with explicit local RVOL artifacts; Alpaca remains a placeholder for standalone provider selection, and trading/order functionality is out of scope.
 
 Run a local preflight with placeholder values:
 
@@ -216,6 +218,7 @@ Run a local preflight with placeholder values:
 $env:MARKET_SENTRY_PROVIDER="live_composed"
 $env:MARKET_SENTRY_ALLOW_LIVE_DATA="true"
 $env:MARKET_SENTRY_WATCHLIST="AAPL"
+$env:MARKET_SENTRY_RVOL_ARTIFACT_MANIFEST_PATH="C:\market-sentry\artifacts\rvol-artifacts.json"
 $env:ALPACA_API_KEY="placeholder-key"
 $env:ALPACA_API_SECRET="placeholder-secret"
 $env:FMP_API_KEY="placeholder-fmp-key"
@@ -223,6 +226,7 @@ python -m market_sentry --live-readiness --relative-volume-configured
 Remove-Item Env:MARKET_SENTRY_PROVIDER
 Remove-Item Env:MARKET_SENTRY_ALLOW_LIVE_DATA
 Remove-Item Env:MARKET_SENTRY_WATCHLIST
+Remove-Item Env:MARKET_SENTRY_RVOL_ARTIFACT_MANIFEST_PATH
 Remove-Item Env:ALPACA_API_KEY
 Remove-Item Env:ALPACA_API_SECRET
 Remove-Item Env:FMP_API_KEY

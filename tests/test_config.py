@@ -1,4 +1,5 @@
 import pytest
+from pathlib import Path
 
 from market_sentry.config import (
     AppConfig,
@@ -24,6 +25,7 @@ def test_mock_mode_requires_no_credentials() -> None:
     assert config.alpaca_api_key is None
     assert config.alpaca_api_secret is None
     assert config.fmp_api_key is None
+    assert config.rvol_artifact_manifest_path is None
 
 
 def test_future_credential_fields_are_optional_placeholders() -> None:
@@ -33,6 +35,7 @@ def test_future_credential_fields_are_optional_placeholders() -> None:
     assert config.alpaca_api_secret is None
     assert config.alpaca_data_feed is None
     assert config.fmp_api_key is None
+    assert config.rvol_artifact_manifest_path is None
 
 
 def test_provider_name_normalizes_cleanly() -> None:
@@ -61,6 +64,7 @@ def test_load_config_parses_future_placeholders_without_requiring_them() -> None
             "ALPACA_API_SECRET": "secret",
             "ALPACA_DATA_FEED": "iex",
             "FMP_API_KEY": "fmp",
+            "MARKET_SENTRY_RVOL_ARTIFACT_MANIFEST_PATH": " artifacts/rvol.json ",
         }
     )
 
@@ -70,6 +74,7 @@ def test_load_config_parses_future_placeholders_without_requiring_them() -> None
     assert config.alpaca_api_secret == "secret"
     assert config.alpaca_data_feed == "iex"
     assert config.fmp_api_key == "fmp"
+    assert config.rvol_artifact_manifest_path == Path("artifacts/rvol.json")
 
 
 def test_config_repr_does_not_include_secret_values() -> None:
@@ -106,6 +111,7 @@ def live_config(**overrides: object) -> AppConfig:
         "alpaca_api_key": "alpaca-key-secret",
         "alpaca_api_secret": "alpaca-secret-secret",
         "fmp_api_key": "fmp-key-secret",
+        "rvol_artifact_manifest_path": Path("rvol-artifacts.json"),
     }
     values.update(overrides)
     return AppConfig(**values)
@@ -160,6 +166,13 @@ def test_live_gate_fails_if_fmp_api_key_is_missing() -> None:
     )
 
 
+def test_live_gate_fails_if_rvol_artifact_manifest_path_is_missing() -> None:
+    assert_gate_fails_with(
+        live_config(rvol_artifact_manifest_path=None),
+        LiveProviderGateFailure.MISSING_RVOL_ARTIFACT_MANIFEST_PATH,
+    )
+
+
 def test_live_gate_passes_only_when_all_required_fields_are_present() -> None:
     result = validate_live_provider_gate(live_config())
 
@@ -179,6 +192,7 @@ def test_live_gate_collects_stable_failure_reasons() -> None:
         LiveProviderGateFailure.MISSING_ALPACA_API_KEY,
         LiveProviderGateFailure.MISSING_ALPACA_API_SECRET,
         LiveProviderGateFailure.MISSING_FMP_API_KEY,
+        LiveProviderGateFailure.MISSING_RVOL_ARTIFACT_MANIFEST_PATH,
     )
 
 
@@ -209,6 +223,7 @@ def test_live_gate_can_be_validated_from_environment_mapping() -> None:
             "ALPACA_API_KEY": "key",
             "ALPACA_API_SECRET": "secret",
             "FMP_API_KEY": "fmp",
+            "MARKET_SENTRY_RVOL_ARTIFACT_MANIFEST_PATH": "rvol-artifacts.json",
         }
     )
 

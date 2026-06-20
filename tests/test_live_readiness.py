@@ -1,5 +1,6 @@
 import ast
 import inspect
+from pathlib import Path
 
 import pytest
 
@@ -29,6 +30,7 @@ def live_config(**overrides: object) -> AppConfig:
         "alpaca_api_key": "placeholder-key",
         "alpaca_api_secret": "placeholder-secret",
         "fmp_api_key": "placeholder-fmp-key",
+        "rvol_artifact_manifest_path": Path("rvol-artifacts.json"),
     }
     values.update(overrides)
     return AppConfig(**values)
@@ -129,6 +131,21 @@ def test_report_fails_when_relative_volume_source_is_missing() -> None:
     assert check.message == "Relative-volume source is missing."
 
 
+def test_report_fails_when_manifest_path_is_missing() -> None:
+    report = evaluate_live_readiness(
+        live_config(rvol_artifact_manifest_path=None),
+        relative_volume_configured=True,
+    )
+
+    check = checks_by_name(report)[
+        LiveReadinessCheckName.RVOL_ARTIFACT_MANIFEST_PATH_PRESENT
+    ]
+
+    assert not report.ready
+    assert not check.passed
+    assert check.message == "RVOL artifact manifest path is missing."
+
+
 def test_report_accepts_explicit_relative_volume_provider() -> None:
     report = evaluate_live_readiness(
         live_config(),
@@ -183,13 +200,15 @@ def test_report_exposes_stable_check_names_and_results() -> None:
         LiveReadinessCheckName.ALPACA_API_KEY_PRESENT,
         LiveReadinessCheckName.ALPACA_API_SECRET_PRESENT,
         LiveReadinessCheckName.FMP_API_KEY_PRESENT,
+        LiveReadinessCheckName.RVOL_ARTIFACT_MANIFEST_PATH_PRESENT,
         LiveReadinessCheckName.RELATIVE_VOLUME_SOURCE_PRESENT,
     )
     assert all(isinstance(check.passed, bool) for check in report.checks)
     assert report.summary == (
         "Live readiness checks failed: PROVIDER_SELECTED, LIVE_DATA_ALLOWED, "
         "WATCHLIST_PRESENT, ALPACA_API_KEY_PRESENT, ALPACA_API_SECRET_PRESENT, "
-        "FMP_API_KEY_PRESENT, RELATIVE_VOLUME_SOURCE_PRESENT."
+        "FMP_API_KEY_PRESENT, RVOL_ARTIFACT_MANIFEST_PATH_PRESENT, "
+        "RELATIVE_VOLUME_SOURCE_PRESENT."
     )
 
 
@@ -252,8 +271,8 @@ def test_runtime_provider_factory_remains_unchanged() -> None:
         create_market_data_provider(AppConfig(provider="alpaca"))
 
 
-def test_live_composed_remains_gated_placeholder() -> None:
-    with pytest.raises(ProviderConfigurationError, match="reserved"):
+def test_live_composed_requires_local_artifact_manifest() -> None:
+    with pytest.raises(ProviderConfigurationError, match="MISSING_RVOL_ARTIFACT"):
         create_market_data_provider(
             live_config(
                 provider="live_composed",
@@ -262,5 +281,6 @@ def test_live_composed_remains_gated_placeholder() -> None:
                 alpaca_api_key="placeholder-key",
                 alpaca_api_secret="placeholder-secret",
                 fmp_api_key="placeholder-fmp-key",
+                rvol_artifact_manifest_path=None,
             )
         )

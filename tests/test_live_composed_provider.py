@@ -259,11 +259,11 @@ def test_live_composed_provider_has_no_network_or_trading_behavior() -> None:
     assert "execute_order" not in source.lower()
 
 
-def test_provider_factory_does_not_activate_live_composed_provider() -> None:
+def test_provider_factory_requires_rvol_manifest_before_live_composed_activation() -> None:
     source = inspect.getsource(factory)
 
-    assert "LiveComposedMarketDataProvider" not in source
-    with pytest.raises(ProviderConfigurationError, match="reserved"):
+    assert ".send(" not in source
+    with pytest.raises(ProviderConfigurationError, match="MISSING_RVOL_ARTIFACT"):
         create_market_data_provider(
             AppConfig(
                 provider="live_composed",

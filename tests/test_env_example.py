@@ -54,6 +54,7 @@ def test_readme_documents_live_readiness_preflight_usage() -> None:
     assert "$env:MARKET_SENTRY_PROVIDER=\"live_composed\"" in content
     assert "$env:MARKET_SENTRY_ALLOW_LIVE_DATA=\"true\"" in content
     assert "$env:MARKET_SENTRY_WATCHLIST=\"AAPL\"" in content
+    assert "$env:MARKET_SENTRY_RVOL_ARTIFACT_MANIFEST_PATH=" in content
     assert "$env:ALPACA_API_KEY=\"placeholder-key\"" in content
     assert "$env:ALPACA_API_SECRET=\"placeholder-secret\"" in content
     assert "$env:FMP_API_KEY=\"placeholder-fmp-key\"" in content
@@ -68,7 +69,7 @@ def test_readme_documents_preflight_safety_boundaries() -> None:
     assert "does not render the scanner report" in content
     assert "`--relative-volume-configured` is only an explicit local signal" in content
     assert "RVOL is not calculated, fetched, inferred, or fabricated." in content
-    assert "`live_composed` remains reserved and inactive as a scanner provider" in content
+    assert "`live_composed` is available only for one-shot scanner runs" in content
     assert "Alpaca remains a placeholder" in content
     assert "trading/order functionality is out of scope" in content
 
@@ -87,7 +88,7 @@ def test_runtime_provider_factory_remains_unchanged() -> None:
     with pytest.raises(ProviderConfigurationError, match="future placeholder"):
         create_market_data_provider(AppConfig(provider="alpaca"))
 
-    with pytest.raises(ProviderConfigurationError, match="reserved"):
+    with pytest.raises(ProviderConfigurationError, match="MISSING_RVOL_ARTIFACT"):
         create_market_data_provider(
             AppConfig(
                 provider="live_composed",

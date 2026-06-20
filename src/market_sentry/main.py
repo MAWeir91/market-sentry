@@ -19,10 +19,12 @@ from market_sentry.alerts import (
     generate_alerts,
 )
 from market_sentry.config import load_config
+from market_sentry.config import LIVE_COMPOSED_PROVIDER
 from market_sentry.data.factory import (
     ProviderConfigurationError,
     create_market_data_provider,
 )
+from market_sentry.data.json_historical_rvol_bundle import JsonHistoricalRvolBundleError
 from market_sentry.data.provider import MarketDataProvider
 from market_sentry.live_readiness import (
     LiveReadinessReport,
@@ -69,6 +71,10 @@ PROVIDER_REPORT_LABELS = {
     "mock": "Mock Scanner Report",
     "fixture": "Fixture Scanner Report",
     "composed_fixture": "Composed Fixture Scanner Report",
+    "live_composed": (
+        "Live Composed One-Shot Scanner Report\n"
+        "(live Alpaca snapshots + live FMP float + explicit local RVOL artifacts)"
+    ),
 }
 
 
@@ -200,7 +206,10 @@ def render_live_readiness_report(report: LiveReadinessReport) -> str:
         [
             "",
             f"Summary: {report.summary}",
-            "Note: This preflight does not call APIs and does not activate live_composed.",
+            (
+                "Note: This preflight validates local configuration only. It does "
+                "not read or preflight artifacts, call APIs, or activate live_composed."
+            ),
         ]
     )
     return "\n".join(lines)
@@ -592,6 +601,20 @@ def _render_local_json_bundle_report_same_bundle_error(
     )
 
 
+def _render_live_composed_loop_error() -> str:
+    return "\n".join(
+        [
+            "Market Sentry Live Composed Scanner",
+            "Result: COMMAND_ERROR",
+            "Error: --loop is not available for live_composed in Phase 18A",
+            (
+                "Note: Phase 18A permits one-shot live-composed scans only. "
+                "RVOL comes from explicit local artifacts."
+            ),
+        ]
+    )
+
+
 def _build_manual_capture_command_request(
     args: argparse.Namespace,
 ) -> ManualExplicitAlpacaRvolCaptureCommandRequest:
@@ -964,8 +987,24 @@ def main(
 
     try:
         config = load_config()
-        provider = create_market_data_provider(config)
     except ProviderConfigurationError as exc:
+        print(f"Provider configuration error: {exc}")
+        return 1
+
+    if args.loop and config.provider.strip().lower() == LIVE_COMPOSED_PROVIDER:
+        print(_render_live_composed_loop_error())
+        return 2
+
+    try:
+        provider = create_market_data_provider(config)
+    except (
+        ProviderConfigurationError,
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        JsonHistoricalSessionMetadataFileSourceError,
+        JsonHistoricalRvolBundleError,
+    ) as exc:
         print(f"Provider configuration error: {exc}")
         return 1
 

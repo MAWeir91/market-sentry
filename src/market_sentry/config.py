@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Mapping
 import os
 
@@ -38,6 +39,7 @@ class LiveProviderGateFailure(str, Enum):
     MISSING_ALPACA_API_KEY = "MISSING_ALPACA_API_KEY"
     MISSING_ALPACA_API_SECRET = "MISSING_ALPACA_API_SECRET"
     MISSING_FMP_API_KEY = "MISSING_FMP_API_KEY"
+    MISSING_RVOL_ARTIFACT_MANIFEST_PATH = "MISSING_RVOL_ARTIFACT_MANIFEST_PATH"
 
 
 @dataclass(frozen=True)
@@ -70,6 +72,7 @@ class AppConfig:
     alpaca_api_secret: str | None = field(default=None, repr=False)
     alpaca_data_feed: str | None = None
     fmp_api_key: str | None = field(default=None, repr=False)
+    rvol_artifact_manifest_path: Path | None = None
 
 
 def _optional_env(environ: Mapping[str, str], name: str) -> str | None:
@@ -94,6 +97,17 @@ def load_config(environ: Mapping[str, str] | None = None) -> AppConfig:
         alpaca_api_secret=_optional_env(env, "ALPACA_API_SECRET"),
         alpaca_data_feed=_optional_env(env, "ALPACA_DATA_FEED"),
         fmp_api_key=_optional_env(env, "FMP_API_KEY"),
+        rvol_artifact_manifest_path=(
+            Path(path_value)
+            if (
+                path_value := _optional_env(
+                    env,
+                    "MARKET_SENTRY_RVOL_ARTIFACT_MANIFEST_PATH",
+                )
+            )
+            is not None
+            else None
+        ),
     )
 
 
@@ -114,6 +128,10 @@ def validate_live_provider_gate(config: AppConfig) -> LiveProviderGateResult:
         failures.append(LiveProviderGateFailure.MISSING_ALPACA_API_SECRET)
     if not config.fmp_api_key:
         failures.append(LiveProviderGateFailure.MISSING_FMP_API_KEY)
+    if config.rvol_artifact_manifest_path is None:
+        failures.append(
+            LiveProviderGateFailure.MISSING_RVOL_ARTIFACT_MANIFEST_PATH
+        )
 
     return LiveProviderGateResult(
         allowed=not failures,

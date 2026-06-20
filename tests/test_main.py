@@ -167,8 +167,9 @@ def test_render_live_readiness_report_includes_stable_content() -> None:
     assert "[FAIL] PROVIDER_SELECTED" in rendered
     assert "[FAIL] RELATIVE_VOLUME_SOURCE_PRESENT" in rendered
     assert "Summary: Live readiness checks failed:" in rendered
-    assert "does not call APIs" in rendered
-    assert "does not activate live_composed" in rendered
+    assert "does not read or preflight artifacts" in rendered
+    assert "call APIs" in rendered
+    assert "or activate live_composed" in rendered
 
 
 def test_live_readiness_cli_prints_report_and_exits_one(capsys) -> None:
@@ -214,6 +215,7 @@ def test_live_readiness_cli_exits_zero_when_preconditions_pass(
     monkeypatch.setenv("ALPACA_API_KEY", "placeholder-key")
     monkeypatch.setenv("ALPACA_API_SECRET", "placeholder-secret")
     monkeypatch.setenv("FMP_API_KEY", "placeholder-fmp-key")
+    monkeypatch.setenv("MARKET_SENTRY_RVOL_ARTIFACT_MANIFEST_PATH", "rvol.json")
 
     exit_code = main(["--live-readiness", "--relative-volume-configured"])
 
@@ -238,6 +240,7 @@ def test_live_readiness_cli_rvol_check_fails_without_explicit_flag(
     monkeypatch.setenv("ALPACA_API_KEY", "placeholder-key")
     monkeypatch.setenv("ALPACA_API_SECRET", "placeholder-secret")
     monkeypatch.setenv("FMP_API_KEY", "placeholder-fmp-key")
+    monkeypatch.setenv("MARKET_SENTRY_RVOL_ARTIFACT_MANIFEST_PATH", "rvol.json")
 
     exit_code = main(["--live-readiness"])
 
@@ -256,6 +259,7 @@ def test_live_readiness_cli_output_is_secret_safe(monkeypatch, capsys) -> None:
     monkeypatch.setenv("ALPACA_API_KEY", "visible-key-should-not-print")
     monkeypatch.setenv("ALPACA_API_SECRET", "visible-secret-should-not-print")
     monkeypatch.setenv("FMP_API_KEY", "visible-fmp-should-not-print")
+    monkeypatch.setenv("MARKET_SENTRY_RVOL_ARTIFACT_MANIFEST_PATH", "rvol.json")
 
     exit_code = main(["--live-readiness", "--relative-volume-configured"])
 
@@ -2300,6 +2304,7 @@ def test_runtime_live_composed_failed_gate_fails_cleanly_without_report(
     assert "MISSING_ALPACA_API_KEY" in output
     assert "MISSING_ALPACA_API_SECRET" in output
     assert "MISSING_FMP_API_KEY" in output
+    assert "MISSING_RVOL_ARTIFACT_MANIFEST_PATH" in output
     assert "Market Sentry" not in output
     assert "Mock Scanner Report" not in output
     assert "Fixture Scanner Report" not in output
@@ -2309,7 +2314,7 @@ def test_runtime_live_composed_failed_gate_fails_cleanly_without_report(
     assert speaker.calls == 0
 
 
-def test_runtime_live_composed_gate_passing_placeholder_fails_cleanly(
+def test_runtime_live_composed_missing_manifest_file_fails_cleanly(
     monkeypatch,
     capsys,
 ) -> None:
@@ -2319,22 +2324,70 @@ def test_runtime_live_composed_gate_passing_placeholder_fails_cleanly(
     monkeypatch.setenv("ALPACA_API_KEY", "visible-key-should-not-print")
     monkeypatch.setenv("ALPACA_API_SECRET", "visible-secret-should-not-print")
     monkeypatch.setenv("FMP_API_KEY", "visible-fmp-should-not-print")
+    monkeypatch.setenv("MARKET_SENTRY_RVOL_ARTIFACT_MANIFEST_PATH", "missing.json")
 
     exit_code = main([])
 
     output = capsys.readouterr().out
 
     assert exit_code == 1
-    assert (
-        "Provider configuration error: live_composed is reserved for a future "
-        "live provider and is not active yet."
-    ) in output
+    assert "Provider configuration error:" in output
+    assert "missing.json" in output
     assert "visible-key-should-not-print" not in output
     assert "visible-secret-should-not-print" not in output
     assert "visible-fmp-should-not-print" not in output
     assert "Market Sentry" not in output
     assert "Qualified Results" not in output
     assert "Traceback" not in output
+
+
+def test_runtime_live_composed_loop_rejected_before_factory(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setenv("MARKET_SENTRY_PROVIDER", "live_composed")
+    monkeypatch.setattr(
+        runner,
+        "create_market_data_provider",
+        lambda _config: pytest.fail("factory should not run for live loop"),
+    )
+
+    exit_code = main(["--loop", "--interval", "30"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Market Sentry Live Composed Scanner" in output
+    assert "--loop is not available for live_composed in Phase 18A" in output
+    assert "RVOL comes from explicit local artifacts" in output
+
+
+def test_runtime_live_composed_one_shot_uses_live_report_label(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    provider = MockMarketDataProvider()
+    calls = []
+    monkeypatch.setenv("MARKET_SENTRY_PROVIDER", "live_composed")
+    monkeypatch.setattr(runner, "create_market_data_provider", lambda _config: provider)
+
+    def fake_run_scan(**kwargs):
+        calls.append(kwargs)
+        print(kwargs["report_label"])
+
+    monkeypatch.setattr(runner, "_run_scan", fake_run_scan)
+
+    exit_code = main([])
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert calls[0]["provider"] is provider
+    assert calls[0]["speak"] is False
+    assert "Live Composed One-Shot Scanner Report" in output
+    assert "live Alpaca snapshots + live FMP float + explicit local RVOL artifacts" in output
 
 
 def test_runtime_unknown_provider_fails_cleanly(monkeypatch, capsys) -> None:

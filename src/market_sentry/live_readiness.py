@@ -30,6 +30,7 @@ class LiveReadinessCheckName(str, Enum):
     ALPACA_API_KEY_PRESENT = "ALPACA_API_KEY_PRESENT"
     ALPACA_API_SECRET_PRESENT = "ALPACA_API_SECRET_PRESENT"
     FMP_API_KEY_PRESENT = "FMP_API_KEY_PRESENT"
+    RVOL_ARTIFACT_MANIFEST_PATH_PRESENT = "RVOL_ARTIFACT_MANIFEST_PATH_PRESENT"
     RELATIVE_VOLUME_SOURCE_PRESENT = "RELATIVE_VOLUME_SOURCE_PRESENT"
 
 
@@ -111,6 +112,9 @@ def evaluate_live_readiness(
     alpaca_api_key_present = bool(config.alpaca_api_key)
     alpaca_api_secret_present = bool(config.alpaca_api_secret)
     fmp_api_key_present = bool(config.fmp_api_key)
+    rvol_artifact_manifest_path_present = (
+        config.rvol_artifact_manifest_path is not None
+    )
     relative_volume_source_present = _has_relative_volume_source(
         relative_volume_configured=relative_volume_configured,
         relative_volume_provider=relative_volume_provider,
@@ -163,6 +167,15 @@ def evaluate_live_readiness(
             LiveReadinessCheckName.FMP_API_KEY_PRESENT,
             fmp_api_key_present,
             "FMP API key is present." if fmp_api_key_present else "FMP API key is missing.",
+        ),
+        _check(
+            LiveReadinessCheckName.RVOL_ARTIFACT_MANIFEST_PATH_PRESENT,
+            rvol_artifact_manifest_path_present,
+            (
+                "RVOL artifact manifest path is configured."
+                if rvol_artifact_manifest_path_present
+                else "RVOL artifact manifest path is missing."
+            ),
         ),
         _check(
             LiveReadinessCheckName.RELATIVE_VOLUME_SOURCE_PRESENT,

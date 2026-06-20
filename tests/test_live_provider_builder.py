@@ -1,5 +1,6 @@
 import ast
 import inspect
+from pathlib import Path
 
 import pytest
 
@@ -113,6 +114,7 @@ def live_config(**overrides: object) -> AppConfig:
         "alpaca_api_key": "placeholder-key",
         "alpaca_api_secret": "placeholder-secret",
         "fmp_api_key": "placeholder-fmp-key",
+        "rvol_artifact_manifest_path": Path("rvol-artifacts.json"),
     }
     values.update(overrides)
     return AppConfig(**values)
@@ -427,11 +429,11 @@ def test_live_provider_builder_has_no_runtime_network_or_trading_behavior() -> N
     assert "execute_order" not in source.lower()
 
 
-def test_runtime_provider_factory_remains_live_composed_placeholder() -> None:
+def test_runtime_provider_factory_activates_live_composed_one_shot_path() -> None:
     source = inspect.getsource(factory)
 
-    assert "build_live_composed_provider" not in source
-    with pytest.raises(ProviderConfigurationError, match="reserved"):
+    assert "build_live_composed_provider" in source
+    with pytest.raises(FileNotFoundError):
         create_market_data_provider(live_config())
 
 
