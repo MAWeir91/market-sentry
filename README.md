@@ -194,6 +194,14 @@ python -m market_sentry --local-json-bundle-preflight <METADATA_PATH> <BUNDLE_PA
 
 The metadata path is first and the historical RVOL bundle path is second. This command reads only those explicit local input paths and optionally writes only the explicit report path. It does not create parent directories, discover files, activate providers, scan candidates, call APIs, or play voice alerts. Use a report path distinct from both input paths. This is offline diagnostics only, not live analysis or trading behavior.
 
+Run a manual one-shot Alpaca RVOL capture preflight with:
+
+```powershell
+python -m market_sentry --manual-alpaca-rvol-capture <METADATA_INPUT_PATH> <METADATA_OUTPUT_PATH> <BUNDLE_OUTPUT_PATH> --manual-alpaca-rvol-capture-confirm-live-data --manual-alpaca-rvol-capture-symbol <SYMBOL> --manual-alpaca-rvol-capture-historical-start <ISO_TIMESTAMP> --manual-alpaca-rvol-capture-historical-end <ISO_TIMESTAMP> --manual-alpaca-rvol-capture-historical-max-pages <INTEGER> --manual-alpaca-rvol-capture-current-start <ISO_TIMESTAMP> --manual-alpaca-rvol-capture-current-end <ISO_TIMESTAMP> --manual-alpaca-rvol-capture-current-max-pages <INTEGER> --manual-alpaca-rvol-capture-current-session-id <SESSION_ID> --manual-alpaca-rvol-capture-bucket <BUCKET> --manual-alpaca-rvol-capture-cutoff <ISO_TIMESTAMP> --manual-alpaca-rvol-capture-minimum-historical-sessions <INTEGER>
+```
+
+This command may call Alpaca only when both `--manual-alpaca-rvol-capture-confirm-live-data` and `MARKET_SENTRY_ALLOW_LIVE_DATA` are enabled. It requires Alpaca credentials, but it does not require FMP, `live_composed`, or a watchlist. It requires a caller-supplied metadata seed file and writes only the explicit metadata, bundle, and optional report artifact paths. It is not scanner activation and does not trade.
+
 Run the live-readiness preflight without activating live data:
 
 ```powershell

@@ -3,6 +3,7 @@ import inspect
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import market_sentry.__main__ as package_main
 import pytest
@@ -325,6 +326,73 @@ def test_parse_args_supports_local_json_bundle_preflight_report_path() -> None:
     assert args.local_json_bundle_preflight_report == Path("bundle-report.txt")
 
 
+def test_parse_args_supports_manual_alpaca_rvol_capture_values() -> None:
+    args = parse_args(
+        [
+            "--manual-alpaca-rvol-capture",
+            "seed.json",
+            "metadata.json",
+            "bundle.json",
+            "--manual-alpaca-rvol-capture-report",
+            "report.txt",
+            "--manual-alpaca-rvol-capture-confirm-live-data",
+            "--manual-alpaca-rvol-capture-symbol",
+            "RVOL",
+            "--manual-alpaca-rvol-capture-historical-start",
+            "2026-01-02T09:30:00Z",
+            "--manual-alpaca-rvol-capture-historical-end",
+            "2026-01-21T10:00:00Z",
+            "--manual-alpaca-rvol-capture-historical-max-pages",
+            "5",
+            "--manual-alpaca-rvol-capture-current-start",
+            "2026-01-31T09:30:00Z",
+            "--manual-alpaca-rvol-capture-current-end",
+            "2026-01-31T09:35:00Z",
+            "--manual-alpaca-rvol-capture-current-max-pages",
+            "2",
+            "--manual-alpaca-rvol-capture-current-session-id",
+            "CURRENT-001",
+            "--manual-alpaca-rvol-capture-bucket",
+            "09:35",
+            "--manual-alpaca-rvol-capture-cutoff",
+            "2026-01-31T09:35:00Z",
+            "--manual-alpaca-rvol-capture-minimum-historical-sessions",
+            "20",
+            "--manual-alpaca-rvol-capture-timeframe",
+            "5Min",
+            "--manual-alpaca-rvol-capture-page-limit",
+            "500",
+            "--manual-alpaca-rvol-capture-sort",
+            "desc",
+        ]
+    )
+
+    assert args.manual_alpaca_rvol_capture == [
+        Path("seed.json"),
+        Path("metadata.json"),
+        Path("bundle.json"),
+    ]
+    assert args.manual_alpaca_rvol_capture_report == Path("report.txt")
+    assert args.manual_alpaca_rvol_capture_confirm_live_data is True
+    assert args.manual_alpaca_rvol_capture_symbol == "RVOL"
+    assert args.manual_alpaca_rvol_capture_historical_max_pages == 5
+    assert args.manual_alpaca_rvol_capture_current_max_pages == 2
+    assert args.manual_alpaca_rvol_capture_timeframe == "5Min"
+    assert args.manual_alpaca_rvol_capture_page_limit == 500
+    assert args.manual_alpaca_rvol_capture_sort == "desc"
+
+
+def test_parse_args_manual_alpaca_rvol_capture_defaults() -> None:
+    args = parse_args([])
+
+    assert args.manual_alpaca_rvol_capture is None
+    assert args.manual_alpaca_rvol_capture_report is None
+    assert args.manual_alpaca_rvol_capture_confirm_live_data is False
+    assert args.manual_alpaca_rvol_capture_timeframe == "1Min"
+    assert args.manual_alpaca_rvol_capture_page_limit == 1000
+    assert args.manual_alpaca_rvol_capture_sort == "asc"
+
+
 def test_parse_args_supports_live_readiness_flags() -> None:
     args = parse_args(["--live-readiness", "--relative-volume-configured"])
 
@@ -335,6 +403,39 @@ def test_parse_args_supports_live_readiness_flags() -> None:
 def test_parse_args_keeps_existing_voice_flag_exclusivity_without_local_preflight() -> None:
     with pytest.raises(SystemExit):
         parse_args(["--speak", "--no-speak"])
+
+
+def _manual_capture_argv(*extra: str) -> list[str]:
+    return [
+        "--manual-alpaca-rvol-capture",
+        "seed.json",
+        "metadata.json",
+        "bundle.json",
+        "--manual-alpaca-rvol-capture-confirm-live-data",
+        "--manual-alpaca-rvol-capture-symbol",
+        "RVOL",
+        "--manual-alpaca-rvol-capture-historical-start",
+        "2026-01-02T09:30:00Z",
+        "--manual-alpaca-rvol-capture-historical-end",
+        "2026-01-21T10:00:00Z",
+        "--manual-alpaca-rvol-capture-historical-max-pages",
+        "5",
+        "--manual-alpaca-rvol-capture-current-start",
+        "2026-01-31T09:30:00Z",
+        "--manual-alpaca-rvol-capture-current-end",
+        "2026-01-31T09:35:00Z",
+        "--manual-alpaca-rvol-capture-current-max-pages",
+        "2",
+        "--manual-alpaca-rvol-capture-current-session-id",
+        "CURRENT-001",
+        "--manual-alpaca-rvol-capture-bucket",
+        "09:35",
+        "--manual-alpaca-rvol-capture-cutoff",
+        "2026-01-31T09:35:00Z",
+        "--manual-alpaca-rvol-capture-minimum-historical-sessions",
+        "20",
+        *extra,
+    ]
 
 
 def _fail_if_runtime_work_runs(monkeypatch) -> None:
@@ -362,6 +463,255 @@ def _fail_if_runtime_work_runs(monkeypatch) -> None:
             "local preflight should not run readiness"
         ),
     )
+
+
+def test_manual_capture_report_dependency_error_avoids_config_and_helper(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("manual dependency error should not load config"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_manual_explicit_alpaca_rvol_capture_preflight",
+        lambda *_args: pytest.fail("manual helper should not run"),
+    )
+
+    exit_code = main(["--manual-alpaca-rvol-capture-report", "capture-report.txt"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Market Sentry Manual Alpaca RVOL Capture Preflight" in output
+    assert "Report Path: capture-report.txt" in output
+    assert (
+        "Error: --manual-alpaca-rvol-capture-report requires "
+        "--manual-alpaca-rvol-capture"
+    ) in output
+
+
+def test_manual_capture_option_dependency_error_avoids_config_and_helper(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("manual option dependency error should not load config"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_manual_explicit_alpaca_rvol_capture_preflight",
+        lambda *_args: pytest.fail("manual helper should not run"),
+    )
+
+    exit_code = main(["--manual-alpaca-rvol-capture-symbol", "RVOL"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "manual Alpaca capture options require --manual-alpaca-rvol-capture" in output
+
+
+def test_manual_capture_mode_exclusivity_avoids_config_and_helper(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("manual exclusivity error should not load config"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_manual_explicit_alpaca_rvol_capture_preflight",
+        lambda *_args: pytest.fail("manual helper should not run"),
+    )
+
+    exit_code = main(_manual_capture_argv("--local-json-preflight", "local.json"))
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert (
+        "Error: --manual-alpaca-rvol-capture cannot be combined with "
+        "local JSON preflight modes"
+    ) in output
+
+
+def test_manual_capture_conflicts_preserve_raw_order_and_voice_sanitization(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("manual conflict should not load config"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_manual_explicit_alpaca_rvol_capture_preflight",
+        lambda *_args: pytest.fail("manual helper should not run"),
+    )
+
+    exit_code = main(
+        [
+            "--no-speak",
+            *_manual_capture_argv("--loop", "--interval", "10", "--speak"),
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Result: COMMAND_ERROR" in output
+    assert (
+        "Error: --manual-alpaca-rvol-capture cannot be combined with: "
+        "--no-speak, --loop, --interval, --speak"
+    ) in output
+
+
+def test_manual_capture_missing_confirmation_avoids_config_and_helper(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("missing confirmation should not load config"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_manual_explicit_alpaca_rvol_capture_preflight",
+        lambda *_args: pytest.fail("manual helper should not run"),
+    )
+    argv = [
+        item
+        for item in _manual_capture_argv()
+        if item != "--manual-alpaca-rvol-capture-confirm-live-data"
+    ]
+
+    exit_code = main(argv)
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "LIVE_DATA_CONFIRMATION_REQUIRED" in output
+
+
+def test_manual_capture_env_gate_error_returns_two_after_config_without_runtime(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    calls = []
+    monkeypatch.setattr(runner, "load_config", lambda: calls.append("config") or AppConfig())
+    monkeypatch.setattr(
+        runner,
+        "create_market_data_provider",
+        lambda _config: pytest.fail("manual path should not create providers"),
+    )
+
+    exit_code = main(_manual_capture_argv())
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert calls == ["config"]
+    assert "ENV_LIVE_DATA_NOT_ALLOWED" in output
+    assert "Mock Scanner Report" not in output
+
+
+def test_manual_capture_success_failure_stopped_and_operational_reports(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    config = AppConfig(
+        allow_live_data=True,
+        alpaca_api_key="key",
+        alpaca_api_secret="secret",
+    )
+    monkeypatch.setattr(runner, "load_config", lambda: config)
+
+    success = SimpleNamespace(
+        preflight_result=object(),
+        report="phase 17d success report",
+        status="PREFLIGHT_SUCCEEDED",
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_manual_explicit_alpaca_rvol_capture_preflight",
+        lambda command, loaded_config: success,
+    )
+    monkeypatch.setattr(
+        runner,
+        "is_manual_explicit_alpaca_rvol_capture_success",
+        lambda result: True,
+    )
+
+    exit_code = main(_manual_capture_argv())
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert output == "phase 17d success report\n"
+
+    failed = SimpleNamespace(
+        preflight_result=object(),
+        report="phase 17d failure report",
+        status="PREFLIGHT_FAILED",
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_manual_explicit_alpaca_rvol_capture_preflight",
+        lambda command, loaded_config: failed,
+    )
+    monkeypatch.setattr(
+        runner,
+        "is_manual_explicit_alpaca_rvol_capture_success",
+        lambda result: False,
+    )
+    exit_code = main(_manual_capture_argv())
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert output == "phase 17d failure report\n"
+
+    stopped = SimpleNamespace(preflight_result=None, report=None)
+    monkeypatch.setattr(
+        runner,
+        "run_manual_explicit_alpaca_rvol_capture_preflight",
+        lambda command, loaded_config: stopped,
+    )
+    monkeypatch.setattr(
+        runner,
+        "render_manual_explicit_alpaca_rvol_capture_stopped_report",
+        lambda result, command: "stopped report",
+    )
+    exit_code = main(_manual_capture_argv())
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert output == "stopped report\n"
+
+    monkeypatch.setattr(
+        runner,
+        "run_manual_explicit_alpaca_rvol_capture_preflight",
+        lambda command, loaded_config: (_ for _ in ()).throw(
+            FileNotFoundError("missing seed")
+        ),
+    )
+    exit_code = main(_manual_capture_argv())
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "Result: ERROR" in output
+    assert "Error Type: FileNotFoundError" in output
 
 
 def _successful_preflight_result(tmp_path):

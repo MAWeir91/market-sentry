@@ -28,6 +28,17 @@ from market_sentry.live_readiness import (
     LiveReadinessReport,
     evaluate_live_readiness,
 )
+from market_sentry.manual_explicit_alpaca_rvol_capture_preflight_cli import (
+    MANUAL_EXPLICIT_ALPACA_CAPTURE_EXPECTED_ERRORS,
+    ManualExplicitAlpacaRvolCaptureCommandError,
+    ManualExplicitAlpacaRvolCaptureCommandRequest,
+    is_manual_explicit_alpaca_rvol_capture_success,
+    render_manual_explicit_alpaca_rvol_capture_command_error,
+    render_manual_explicit_alpaca_rvol_capture_error,
+    render_manual_explicit_alpaca_rvol_capture_stopped_report,
+    run_manual_explicit_alpaca_rvol_capture_preflight,
+    validate_manual_explicit_alpaca_rvol_capture_command,
+)
 from market_sentry.local_json_bundle_preflight_cli import (
     MANUAL_LOCAL_JSON_BUNDLE_PREFLIGHT_EXPECTED_ERRORS,
     is_manual_local_json_bundle_preflight_success,
@@ -213,6 +224,55 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         metavar=("METADATA_PATH", "BUNDLE_PATH"),
     )
     parser.add_argument("--local-json-bundle-preflight-report", type=Path, default=None)
+    parser.add_argument(
+        "--manual-alpaca-rvol-capture",
+        type=Path,
+        nargs=3,
+        default=None,
+        metavar=("METADATA_INPUT_PATH", "METADATA_OUTPUT_PATH", "BUNDLE_OUTPUT_PATH"),
+    )
+    parser.add_argument("--manual-alpaca-rvol-capture-report", type=Path, default=None)
+    parser.add_argument(
+        "--manual-alpaca-rvol-capture-confirm-live-data",
+        action="store_true",
+    )
+    parser.add_argument("--manual-alpaca-rvol-capture-symbol", default=None)
+    parser.add_argument("--manual-alpaca-rvol-capture-historical-start", default=None)
+    parser.add_argument("--manual-alpaca-rvol-capture-historical-end", default=None)
+    parser.add_argument(
+        "--manual-alpaca-rvol-capture-historical-max-pages",
+        type=int,
+        default=None,
+    )
+    parser.add_argument("--manual-alpaca-rvol-capture-current-start", default=None)
+    parser.add_argument("--manual-alpaca-rvol-capture-current-end", default=None)
+    parser.add_argument(
+        "--manual-alpaca-rvol-capture-current-max-pages",
+        type=int,
+        default=None,
+    )
+    parser.add_argument("--manual-alpaca-rvol-capture-current-session-id", default=None)
+    parser.add_argument("--manual-alpaca-rvol-capture-bucket", default=None)
+    parser.add_argument("--manual-alpaca-rvol-capture-cutoff", default=None)
+    parser.add_argument(
+        "--manual-alpaca-rvol-capture-minimum-historical-sessions",
+        type=int,
+        default=None,
+    )
+    parser.add_argument(
+        "--manual-alpaca-rvol-capture-timeframe",
+        default="1Min",
+    )
+    parser.add_argument(
+        "--manual-alpaca-rvol-capture-page-limit",
+        type=int,
+        default=1000,
+    )
+    parser.add_argument(
+        "--manual-alpaca-rvol-capture-sort",
+        choices=("asc", "desc"),
+        default="asc",
+    )
     speak_group = parser.add_mutually_exclusive_group()
     speak_group.add_argument("--speak", action="store_true", dest="speak")
     speak_group.add_argument("--no-speak", action="store_false", dest="speak")
@@ -226,6 +286,8 @@ def _has_local_json_preflight_arg(raw_argv: Sequence[str]) -> bool:
         or item.startswith("--local-json-preflight=")
         or item == "--local-json-bundle-preflight"
         or item.startswith("--local-json-bundle-preflight=")
+        or item == "--manual-alpaca-rvol-capture"
+        or item.startswith("--manual-alpaca-rvol-capture=")
         for item in raw_argv
     )
 
@@ -241,6 +303,62 @@ def _local_json_preflight_parse_argv(raw_argv: Sequence[str]) -> list[str]:
 
 
 def _local_json_preflight_conflicts(
+    raw_argv: Sequence[str],
+    args: argparse.Namespace,
+) -> list[str]:
+    conflict_flags = {
+        "--loop",
+        "--live-readiness",
+        "--relative-volume-configured",
+        "--speak",
+        "--no-speak",
+    }
+    conflicts: list[str] = []
+    seen: set[str] = set()
+    interval_conflicts = args.interval != DEFAULT_INTERVAL_SECONDS
+
+    for item in raw_argv:
+        conflict = None
+        if item in conflict_flags:
+            conflict = item
+        elif item == "--interval" or item.startswith("--interval="):
+            if interval_conflicts:
+                conflict = "--interval"
+
+        if conflict is not None and conflict not in seen:
+            conflicts.append(conflict)
+            seen.add(conflict)
+
+    return conflicts
+
+
+def _has_manual_capture_option(raw_argv: Sequence[str]) -> bool:
+    manual_options = {
+        "--manual-alpaca-rvol-capture-report",
+        "--manual-alpaca-rvol-capture-confirm-live-data",
+        "--manual-alpaca-rvol-capture-symbol",
+        "--manual-alpaca-rvol-capture-historical-start",
+        "--manual-alpaca-rvol-capture-historical-end",
+        "--manual-alpaca-rvol-capture-historical-max-pages",
+        "--manual-alpaca-rvol-capture-current-start",
+        "--manual-alpaca-rvol-capture-current-end",
+        "--manual-alpaca-rvol-capture-current-max-pages",
+        "--manual-alpaca-rvol-capture-current-session-id",
+        "--manual-alpaca-rvol-capture-bucket",
+        "--manual-alpaca-rvol-capture-cutoff",
+        "--manual-alpaca-rvol-capture-minimum-historical-sessions",
+        "--manual-alpaca-rvol-capture-timeframe",
+        "--manual-alpaca-rvol-capture-page-limit",
+        "--manual-alpaca-rvol-capture-sort",
+    }
+    return any(
+        item in manual_options
+        or any(item.startswith(f"{option}=") for option in manual_options)
+        for item in raw_argv
+    )
+
+
+def _manual_capture_conflicts(
     raw_argv: Sequence[str],
     args: argparse.Namespace,
 ) -> list[str]:
@@ -333,6 +451,37 @@ def _render_local_json_bundle_report_dependency_error(report_path: Path) -> str:
     )
 
 
+def _render_manual_capture_report_dependency_error(report_path: Path) -> str:
+    return "\n".join(
+        [
+            "Market Sentry Manual Alpaca RVOL Capture Preflight",
+            "Metadata Input Path: N/A",
+            "Metadata Path: N/A",
+            "Bundle Path: N/A",
+            f"Report Path: {report_path}",
+            "Result: COMMAND_ERROR",
+            (
+                "Error: --manual-alpaca-rvol-capture-report requires "
+                "--manual-alpaca-rvol-capture"
+            ),
+        ]
+    )
+
+
+def _render_manual_capture_option_dependency_error() -> str:
+    return "\n".join(
+        [
+            "Market Sentry Manual Alpaca RVOL Capture Preflight",
+            "Metadata Input Path: N/A",
+            "Metadata Path: N/A",
+            "Bundle Path: N/A",
+            "Report Path: N/A",
+            "Result: COMMAND_ERROR",
+            "Error: manual Alpaca capture options require --manual-alpaca-rvol-capture",
+        ]
+    )
+
+
 def _render_local_json_preflight_mode_exclusivity_error() -> str:
     return "\n".join(
         [
@@ -342,6 +491,23 @@ def _render_local_json_preflight_mode_exclusivity_error() -> str:
             (
                 "Error: --local-json-preflight and --local-json-bundle-preflight "
                 "cannot be combined"
+            ),
+        ]
+    )
+
+
+def _render_manual_capture_mode_exclusivity_error() -> str:
+    return "\n".join(
+        [
+            "Market Sentry Manual Alpaca RVOL Capture Preflight",
+            "Metadata Input Path: N/A",
+            "Metadata Path: N/A",
+            "Bundle Path: N/A",
+            "Report Path: N/A",
+            "Result: COMMAND_ERROR",
+            (
+                "Error: --manual-alpaca-rvol-capture cannot be combined with "
+                "local JSON preflight modes"
             ),
         ]
     )
@@ -360,6 +526,26 @@ def _render_local_json_bundle_conflict_error(
             "Result: COMMAND_ERROR",
             (
                 "Error: --local-json-bundle-preflight cannot be combined with: "
+                f"{', '.join(conflicts)}"
+            ),
+        ]
+    )
+
+
+def _render_manual_capture_conflict_error(
+    command: ManualExplicitAlpacaRvolCaptureCommandRequest,
+    conflicts: Sequence[str],
+) -> str:
+    return "\n".join(
+        [
+            "Market Sentry Manual Alpaca RVOL Capture Preflight",
+            f"Metadata Input Path: {command.metadata_input_path}",
+            f"Metadata Path: {command.metadata_output_path}",
+            f"Bundle Path: {command.bundle_output_path}",
+            f"Report Path: {command.report_output_path or 'N/A'}",
+            "Result: COMMAND_ERROR",
+            (
+                "Error: --manual-alpaca-rvol-capture cannot be combined with: "
                 f"{', '.join(conflicts)}"
             ),
         ]
@@ -403,6 +589,38 @@ def _render_local_json_bundle_report_same_bundle_error(
                 "bundle path"
             ),
         ]
+    )
+
+
+def _build_manual_capture_command_request(
+    args: argparse.Namespace,
+) -> ManualExplicitAlpacaRvolCaptureCommandRequest:
+    paths = args.manual_alpaca_rvol_capture
+    metadata_input_path = paths[0]
+    metadata_output_path = paths[1]
+    bundle_output_path = paths[2]
+    return ManualExplicitAlpacaRvolCaptureCommandRequest(
+        metadata_input_path=metadata_input_path,
+        metadata_output_path=metadata_output_path,
+        bundle_output_path=bundle_output_path,
+        report_output_path=args.manual_alpaca_rvol_capture_report,
+        confirm_live_data=args.manual_alpaca_rvol_capture_confirm_live_data,
+        symbol=args.manual_alpaca_rvol_capture_symbol,
+        historical_start=args.manual_alpaca_rvol_capture_historical_start,
+        historical_end=args.manual_alpaca_rvol_capture_historical_end,
+        historical_max_pages=args.manual_alpaca_rvol_capture_historical_max_pages,
+        current_start=args.manual_alpaca_rvol_capture_current_start,
+        current_end=args.manual_alpaca_rvol_capture_current_end,
+        current_max_pages=args.manual_alpaca_rvol_capture_current_max_pages,
+        current_session_id=args.manual_alpaca_rvol_capture_current_session_id,
+        bucket=args.manual_alpaca_rvol_capture_bucket,
+        cutoff=args.manual_alpaca_rvol_capture_cutoff,
+        minimum_historical_sessions=(
+            args.manual_alpaca_rvol_capture_minimum_historical_sessions
+        ),
+        timeframe=args.manual_alpaca_rvol_capture_timeframe,
+        page_limit=args.manual_alpaca_rvol_capture_page_limit,
+        sort=args.manual_alpaca_rvol_capture_sort,
     )
 
 
@@ -511,6 +729,7 @@ def main(
     bundle_paths = args.local_json_bundle_preflight
     bundle_metadata_path = bundle_paths[0] if bundle_paths is not None else None
     bundle_path = bundle_paths[1] if bundle_paths is not None else None
+    manual_paths = args.manual_alpaca_rvol_capture
 
     if (
         args.local_json_preflight_report is not None
@@ -534,9 +753,63 @@ def main(
         )
         return 2
 
+    if (
+        args.manual_alpaca_rvol_capture_report is not None
+        and manual_paths is None
+    ):
+        print(
+            _render_manual_capture_report_dependency_error(
+                args.manual_alpaca_rvol_capture_report,
+            )
+        )
+        return 2
+
+    if manual_paths is None and _has_manual_capture_option(raw_argv):
+        print(_render_manual_capture_option_dependency_error())
+        return 2
+
+    if manual_paths is not None and (
+        args.local_json_preflight is not None or bundle_paths is not None
+    ):
+        print(_render_manual_capture_mode_exclusivity_error())
+        return 2
+
     if args.local_json_preflight is not None and bundle_paths is not None:
         print(_render_local_json_preflight_mode_exclusivity_error())
         return 2
+
+    if manual_paths is not None:
+        command = _build_manual_capture_command_request(args)
+        conflicts = _manual_capture_conflicts(raw_argv, args)
+        if conflicts:
+            print(_render_manual_capture_conflict_error(command, conflicts))
+            return 2
+
+        try:
+            validate_manual_explicit_alpaca_rvol_capture_command(command)
+            config = load_config()
+            result = run_manual_explicit_alpaca_rvol_capture_preflight(
+                command,
+                config,
+            )
+        except ManualExplicitAlpacaRvolCaptureCommandError as exc:
+            print(render_manual_explicit_alpaca_rvol_capture_command_error(command, exc))
+            return 2
+        except MANUAL_EXPLICIT_ALPACA_CAPTURE_EXPECTED_ERRORS as exc:
+            print(render_manual_explicit_alpaca_rvol_capture_error(command, exc))
+            return 1
+
+        if result.preflight_result is None or result.report is None:
+            print(
+                render_manual_explicit_alpaca_rvol_capture_stopped_report(
+                    result,
+                    command,
+                )
+            )
+            return 1
+
+        print(result.report)
+        return 0 if is_manual_explicit_alpaca_rvol_capture_success(result) else 1
 
     if bundle_paths is not None:
         conflicts = _local_json_preflight_conflicts(raw_argv, args)
