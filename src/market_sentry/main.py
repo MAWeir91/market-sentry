@@ -25,10 +25,23 @@ from market_sentry.data.factory import (
     create_market_data_provider,
 )
 from market_sentry.data.json_historical_rvol_bundle import JsonHistoricalRvolBundleError
+from market_sentry.data.json_historical_session_metadata_writer import (
+    JsonHistoricalSessionMetadataWriteError,
+)
 from market_sentry.data.provider import MarketDataProvider
 from market_sentry.live_readiness import (
     LiveReadinessReport,
     evaluate_live_readiness,
+)
+from market_sentry.local_rvol_session_seed_cli import (
+    LOCAL_RVOL_SESSION_SEED_EXPECTED_ERRORS,
+    LocalRvolSessionSeedCommandError,
+    LocalRvolSessionSeedCommandRequest,
+    render_local_rvol_session_seed_command_error,
+    render_local_rvol_session_seed_error,
+    render_local_rvol_session_seed_success_report,
+    run_local_rvol_session_seed,
+    validate_local_rvol_session_seed_command,
 )
 from market_sentry.manual_explicit_alpaca_rvol_capture_preflight_cli import (
     MANUAL_EXPLICIT_ALPACA_CAPTURE_EXPECTED_ERRORS,
@@ -76,6 +89,10 @@ PROVIDER_REPORT_LABELS = {
         "(live Alpaca snapshots + live FMP float + explicit local RVOL artifacts)"
     ),
 }
+LOCAL_RVOL_SESSION_SEED_OPERATIONAL_ERRORS = LOCAL_RVOL_SESSION_SEED_EXPECTED_ERRORS + (
+    json.JSONDecodeError,
+    JsonHistoricalSessionMetadataWriteError,
+)
 
 
 def get_provider_display_label(provider_name: str) -> str:
@@ -282,6 +299,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         choices=("asc", "desc"),
         default="asc",
     )
+    parser.add_argument(
+        "--local-rvol-session-seed",
+        type=Path,
+        nargs=2,
+        default=None,
+        metavar=("PLAN_PATH", "METADATA_OUTPUT_PATH"),
+    )
     speak_group = parser.add_mutually_exclusive_group()
     speak_group.add_argument("--speak", action="store_true", dest="speak")
     speak_group.add_argument("--no-speak", action="store_false", dest="speak")
@@ -297,6 +321,8 @@ def _has_local_json_preflight_arg(raw_argv: Sequence[str]) -> bool:
         or item.startswith("--local-json-bundle-preflight=")
         or item == "--manual-alpaca-rvol-capture"
         or item.startswith("--manual-alpaca-rvol-capture=")
+        or item == "--local-rvol-session-seed"
+        or item.startswith("--local-rvol-session-seed=")
         for item in raw_argv
     )
 
@@ -365,6 +391,59 @@ def _has_manual_capture_option(raw_argv: Sequence[str]) -> bool:
         or any(item.startswith(f"{option}=") for option in manual_options)
         for item in raw_argv
     )
+
+
+def _seed_command_conflicts(
+    raw_argv: Sequence[str],
+    args: argparse.Namespace,
+) -> list[str]:
+    conflict_flags = {
+        "--loop",
+        "--live-readiness",
+        "--relative-volume-configured",
+        "--speak",
+        "--no-speak",
+        "--local-json-preflight",
+        "--local-json-preflight-report",
+        "--local-json-bundle-preflight",
+        "--local-json-bundle-preflight-report",
+        "--manual-alpaca-rvol-capture",
+        "--manual-alpaca-rvol-capture-report",
+        "--manual-alpaca-rvol-capture-confirm-live-data",
+        "--manual-alpaca-rvol-capture-symbol",
+        "--manual-alpaca-rvol-capture-historical-start",
+        "--manual-alpaca-rvol-capture-historical-end",
+        "--manual-alpaca-rvol-capture-historical-max-pages",
+        "--manual-alpaca-rvol-capture-current-start",
+        "--manual-alpaca-rvol-capture-current-end",
+        "--manual-alpaca-rvol-capture-current-max-pages",
+        "--manual-alpaca-rvol-capture-current-session-id",
+        "--manual-alpaca-rvol-capture-bucket",
+        "--manual-alpaca-rvol-capture-cutoff",
+        "--manual-alpaca-rvol-capture-minimum-historical-sessions",
+        "--manual-alpaca-rvol-capture-timeframe",
+        "--manual-alpaca-rvol-capture-page-limit",
+        "--manual-alpaca-rvol-capture-sort",
+    }
+    conflicts: list[str] = []
+    seen: set[str] = set()
+    interval_conflicts = args.interval != DEFAULT_INTERVAL_SECONDS
+
+    for item in raw_argv:
+        conflict = None
+        if item in conflict_flags:
+            conflict = item
+        elif any(item.startswith(f"{flag}=") for flag in conflict_flags):
+            conflict = item.split("=", maxsplit=1)[0]
+        elif item == "--interval" or item.startswith("--interval="):
+            if interval_conflicts:
+                conflict = "--interval"
+
+        if conflict is not None and conflict not in seen:
+            conflicts.append(conflict)
+            seen.add(conflict)
+
+    return conflicts
 
 
 def _manual_capture_conflicts(
@@ -561,6 +640,24 @@ def _render_manual_capture_conflict_error(
     )
 
 
+def _render_local_rvol_session_seed_conflict_error(
+    command: LocalRvolSessionSeedCommandRequest,
+    conflicts: Sequence[str],
+) -> str:
+    return "\n".join(
+        [
+            "Market Sentry Local RVOL Session Seed",
+            f"Plan Path: {command.plan_path}",
+            f"Metadata Path: {command.metadata_output_path}",
+            "Result: COMMAND_ERROR",
+            (
+                "Error: --local-rvol-session-seed cannot be combined with: "
+                f"{', '.join(conflicts)}"
+            ),
+        ]
+    )
+
+
 def _render_local_json_bundle_report_same_metadata_error(
     metadata_path: Path,
     bundle_path: Path,
@@ -644,6 +741,16 @@ def _build_manual_capture_command_request(
         timeframe=args.manual_alpaca_rvol_capture_timeframe,
         page_limit=args.manual_alpaca_rvol_capture_page_limit,
         sort=args.manual_alpaca_rvol_capture_sort,
+    )
+
+
+def _build_local_rvol_session_seed_command_request(
+    args: argparse.Namespace,
+) -> LocalRvolSessionSeedCommandRequest:
+    paths = args.local_rvol_session_seed
+    return LocalRvolSessionSeedCommandRequest(
+        plan_path=paths[0],
+        metadata_output_path=paths[1],
     )
 
 
@@ -753,6 +860,27 @@ def main(
     bundle_metadata_path = bundle_paths[0] if bundle_paths is not None else None
     bundle_path = bundle_paths[1] if bundle_paths is not None else None
     manual_paths = args.manual_alpaca_rvol_capture
+    seed_paths = args.local_rvol_session_seed
+
+    if seed_paths is not None:
+        command = _build_local_rvol_session_seed_command_request(args)
+        conflicts = _seed_command_conflicts(raw_argv, args)
+        if conflicts:
+            print(_render_local_rvol_session_seed_conflict_error(command, conflicts))
+            return 2
+
+        try:
+            validate_local_rvol_session_seed_command(command)
+            result = run_local_rvol_session_seed(command)
+        except LocalRvolSessionSeedCommandError as exc:
+            print(render_local_rvol_session_seed_command_error(command, exc))
+            return 2
+        except LOCAL_RVOL_SESSION_SEED_OPERATIONAL_ERRORS as exc:
+            print(render_local_rvol_session_seed_error(command, exc))
+            return 1
+
+        print(render_local_rvol_session_seed_success_report(command, result))
+        return 0
 
     if (
         args.local_json_preflight_report is not None

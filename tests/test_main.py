@@ -386,6 +386,21 @@ def test_parse_args_supports_manual_alpaca_rvol_capture_values() -> None:
     assert args.manual_alpaca_rvol_capture_sort == "desc"
 
 
+def test_parse_args_supports_local_rvol_session_seed_paths() -> None:
+    args = parse_args(
+        [
+            "--local-rvol-session-seed",
+            "plan.json",
+            "metadata.json",
+        ]
+    )
+
+    assert args.local_rvol_session_seed == [
+        Path("plan.json"),
+        Path("metadata.json"),
+    ]
+
+
 def test_parse_args_manual_alpaca_rvol_capture_defaults() -> None:
     args = parse_args([])
 
@@ -395,6 +410,7 @@ def test_parse_args_manual_alpaca_rvol_capture_defaults() -> None:
     assert args.manual_alpaca_rvol_capture_timeframe == "1Min"
     assert args.manual_alpaca_rvol_capture_page_limit == 1000
     assert args.manual_alpaca_rvol_capture_sort == "asc"
+    assert args.local_rvol_session_seed is None
 
 
 def test_parse_args_supports_live_readiness_flags() -> None:
@@ -442,6 +458,35 @@ def _manual_capture_argv(*extra: str) -> list[str]:
     ]
 
 
+def _local_rvol_session_seed_argv(*extra: str) -> list[str]:
+    return [
+        "--local-rvol-session-seed",
+        "plan.json",
+        "metadata.json",
+        *extra,
+    ]
+
+
+def _session_seed_plan_payload(**overrides) -> dict[str, object]:
+    value = {
+        "schema_version": 1,
+        "symbol": "rvol",
+        "bucket": "regular",
+        "current_session_id": "2026-06-18",
+        "sessions": [
+            {
+                "session_id": "2026-06-17",
+                "session_start_timestamp": "2026-06-17T13:30:00Z",
+                "session_end_timestamp": "2026-06-17T20:00:00Z",
+                "cutoff_timestamp": "2026-06-17T14:00:00Z",
+                "is_complete": True,
+            }
+        ],
+    }
+    value.update(overrides)
+    return value
+
+
 def _fail_if_runtime_work_runs(monkeypatch) -> None:
     import market_sentry.main as runner
 
@@ -467,6 +512,241 @@ def _fail_if_runtime_work_runs(monkeypatch) -> None:
             "local preflight should not run readiness"
         ),
     )
+
+
+def test_local_rvol_session_seed_success_runs_before_config(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    plan_path = tmp_path / "plan.json"
+    metadata_path = tmp_path / "metadata.json"
+    plan_path.write_text(json.dumps(_session_seed_plan_payload()), encoding="utf-8")
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("session seed should not load config"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "create_market_data_provider",
+        lambda _config: pytest.fail("session seed should not create providers"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_run_scan",
+        lambda **_kwargs: pytest.fail("session seed should not scan"),
+    )
+
+    exit_code = main(
+        ["--local-rvol-session-seed", str(plan_path), str(metadata_path)]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Market Sentry Local RVOL Session Seed" in output
+    assert f"Plan Path: {plan_path}" in output
+    assert f"Metadata Path: {metadata_path}" in output
+    assert "Input Mode: EXPLICIT_SESSION_PLAN" in output
+    assert "Result: WRITTEN" in output
+    assert "does not infer calendars or call APIs" in output
+    assert metadata_path.exists()
+
+
+def test_local_rvol_session_seed_same_path_returns_command_error(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("session seed command error should not load config"),
+    )
+    exit_code = main(["--local-rvol-session-seed", "same.json", "same.json"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Result: COMMAND_ERROR" in output
+    assert "PLAN_PATH_EQUALS_METADATA_OUTPUT" in output
+
+
+def test_local_rvol_session_seed_invalid_plan_returns_operational_error(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    plan_path = tmp_path / "plan.json"
+    metadata_path = tmp_path / "metadata.json"
+    plan_path.write_text(
+        json.dumps(_session_seed_plan_payload(sessions=[])),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("session seed operational error should not load config"),
+    )
+
+    exit_code = main(
+        ["--local-rvol-session-seed", str(plan_path), str(metadata_path)]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Result: ERROR" in output
+    assert "LocalRvolSessionSeedPlanError" in output
+    assert "EMPTY_SESSIONS" in output
+    assert not metadata_path.exists()
+
+
+def test_local_rvol_session_seed_conflicts_preserve_raw_order(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("session seed conflict should not load config"),
+    )
+    exit_code = main(
+        [
+            "--no-speak",
+            "--local-rvol-session-seed",
+            "plan.json",
+            "metadata.json",
+            "--loop",
+            "--speak",
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Result: COMMAND_ERROR" in output
+    assert (
+        "Error: --local-rvol-session-seed cannot be combined with: "
+        "--no-speak, --loop, --speak"
+    ) in output
+
+
+@pytest.mark.parametrize(
+    ("extra", "expected"),
+    [
+        (["--loop"], "--loop"),
+        (["--interval", "10"], "--interval"),
+        (["--interval=10"], "--interval"),
+        (["--live-readiness"], "--live-readiness"),
+        (["--relative-volume-configured"], "--relative-volume-configured"),
+        (["--speak"], "--speak"),
+        (["--no-speak"], "--no-speak"),
+        (["--local-json-preflight", "metadata.json"], "--local-json-preflight"),
+        (["--local-json-preflight-report", "report.txt"], "--local-json-preflight-report"),
+        (
+            ["--local-json-bundle-preflight", "metadata.json", "bundle.json"],
+            "--local-json-bundle-preflight",
+        ),
+        (
+            ["--local-json-bundle-preflight-report", "bundle-report.txt"],
+            "--local-json-bundle-preflight-report",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture", "seed.json", "meta.json", "bundle.json"],
+            "--manual-alpaca-rvol-capture",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-report", "report.txt"],
+            "--manual-alpaca-rvol-capture-report",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-confirm-live-data"],
+            "--manual-alpaca-rvol-capture-confirm-live-data",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-symbol", "RVOL"],
+            "--manual-alpaca-rvol-capture-symbol",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-historical-start", "2026-01-02T09:30:00Z"],
+            "--manual-alpaca-rvol-capture-historical-start",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-historical-end", "2026-01-21T10:00:00Z"],
+            "--manual-alpaca-rvol-capture-historical-end",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-historical-max-pages", "5"],
+            "--manual-alpaca-rvol-capture-historical-max-pages",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-current-start", "2026-01-31T09:30:00Z"],
+            "--manual-alpaca-rvol-capture-current-start",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-current-end", "2026-01-31T09:35:00Z"],
+            "--manual-alpaca-rvol-capture-current-end",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-current-max-pages", "5"],
+            "--manual-alpaca-rvol-capture-current-max-pages",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-current-session-id", "CURRENT-001"],
+            "--manual-alpaca-rvol-capture-current-session-id",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-bucket", "09:35"],
+            "--manual-alpaca-rvol-capture-bucket",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-cutoff", "2026-01-31T09:35:00Z"],
+            "--manual-alpaca-rvol-capture-cutoff",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-minimum-historical-sessions", "20"],
+            "--manual-alpaca-rvol-capture-minimum-historical-sessions",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-timeframe", "5Min"],
+            "--manual-alpaca-rvol-capture-timeframe",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-page-limit", "500"],
+            "--manual-alpaca-rvol-capture-page-limit",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-sort", "desc"],
+            "--manual-alpaca-rvol-capture-sort",
+        ),
+    ],
+)
+def test_local_rvol_session_seed_rejects_all_documented_conflicts(
+    monkeypatch,
+    capsys,
+    extra,
+    expected,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("session seed conflict should not load config"),
+    )
+
+    exit_code = main(_local_rvol_session_seed_argv(*extra))
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Market Sentry Local RVOL Session Seed" in output
+    assert "Result: COMMAND_ERROR" in output
+    assert expected in output
 
 
 def test_manual_capture_report_dependency_error_avoids_config_and_helper(

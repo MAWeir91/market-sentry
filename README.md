@@ -196,6 +196,32 @@ python -m market_sentry --local-json-bundle-preflight <METADATA_PATH> <BUNDLE_PA
 
 The metadata path is first and the historical RVOL bundle path is second. This command reads only those explicit local input paths and optionally writes only the explicit report path. It does not create parent directories, discover files, activate providers, scan candidates, call APIs, or play voice alerts. Use a report path distinct from both input paths. This is offline diagnostics only, not live analysis or trading behavior.
 
+Build an explicit RVOL session metadata seed with:
+
+```json
+{
+  "schema_version": 1,
+  "symbol": "AAPL",
+  "bucket": "regular",
+  "current_session_id": "2026-06-18",
+  "sessions": [
+    {
+      "session_id": "2026-06-17",
+      "session_start_timestamp": "2026-06-17T13:30:00Z",
+      "session_end_timestamp": "2026-06-17T20:00:00Z",
+      "cutoff_timestamp": "2026-06-17T14:00:00Z",
+      "is_complete": true
+    }
+  ]
+}
+```
+
+```powershell
+python -m market_sentry --local-rvol-session-seed <PLAN_PATH> <METADATA_OUTPUT_PATH>
+```
+
+Every date, time, session ID, and cutoff is caller supplied. This offline command does no API calls, needs no keys, and writes only the explicit metadata output path. The plan path and output path must be distinct. The generated metadata seed can be used as the `METADATA_INPUT_PATH` for the manual Alpaca RVOL capture command below.
+
 Run a manual one-shot Alpaca RVOL capture preflight with:
 
 ```powershell
