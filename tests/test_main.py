@@ -401,6 +401,12 @@ def test_parse_args_supports_local_rvol_session_seed_paths() -> None:
     ]
 
 
+def test_parse_args_supports_local_rvol_artifact_preflight_path() -> None:
+    args = parse_args(["--local-rvol-artifact-preflight", "manifest.json"])
+
+    assert args.local_rvol_artifact_preflight == Path("manifest.json")
+
+
 def test_parse_args_manual_alpaca_rvol_capture_defaults() -> None:
     args = parse_args([])
 
@@ -411,6 +417,7 @@ def test_parse_args_manual_alpaca_rvol_capture_defaults() -> None:
     assert args.manual_alpaca_rvol_capture_page_limit == 1000
     assert args.manual_alpaca_rvol_capture_sort == "asc"
     assert args.local_rvol_session_seed is None
+    assert args.local_rvol_artifact_preflight is None
 
 
 def test_parse_args_supports_live_readiness_flags() -> None:
@@ -463,6 +470,14 @@ def _local_rvol_session_seed_argv(*extra: str) -> list[str]:
         "--local-rvol-session-seed",
         "plan.json",
         "metadata.json",
+        *extra,
+    ]
+
+
+def _local_rvol_artifact_audit_argv(*extra: str) -> list[str]:
+    return [
+        "--local-rvol-artifact-preflight",
+        "manifest.json",
         *extra,
     ]
 
@@ -634,6 +649,315 @@ def test_local_rvol_session_seed_conflicts_preserve_raw_order(
         "Error: --local-rvol-session-seed cannot be combined with: "
         "--no-speak, --loop, --speak"
     ) in output
+
+
+def test_local_rvol_artifact_audit_success_runs_before_config(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    result = object()
+    calls = []
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("artifact audit should not load config"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "create_market_data_provider",
+        lambda _config: pytest.fail("artifact audit should not create providers"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_run_scan",
+        lambda **_kwargs: pytest.fail("artifact audit should not scan"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "evaluate_live_readiness",
+        lambda *_args, **_kwargs: pytest.fail("artifact audit should not run readiness"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_local_rvol_artifact_audit",
+        lambda command: calls.append(command) or result,
+    )
+    monkeypatch.setattr(
+        runner,
+        "render_local_rvol_artifact_audit_report",
+        lambda command, value: "artifact audit report",
+    )
+    monkeypatch.setattr(
+        runner,
+        "is_local_rvol_artifact_audit_success",
+        lambda value: True,
+    )
+
+    exit_code = main(["--local-rvol-artifact-preflight", "manifest.json"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert output == "artifact audit report\n"
+    assert calls
+    assert calls[0].manifest_path == Path("manifest.json")
+
+
+def test_local_rvol_artifact_audit_operation_error_before_config(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("artifact audit operation error should not load config"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_local_rvol_artifact_audit",
+        lambda _command: (_ for _ in ()).throw(FileNotFoundError("missing")),
+    )
+
+    exit_code = main(["--local-rvol-artifact-preflight", "missing-manifest.json"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Market Sentry Local RVOL Artifact Preflight" in output
+    assert "Manifest Path: missing-manifest.json" in output
+    assert "Result: ERROR" in output
+    assert "Error Type: FileNotFoundError" in output
+    assert "missing" in output
+
+
+def test_local_rvol_artifact_audit_failed_result_exits_one_without_config(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    result = object()
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("artifact audit failed result should not load config"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_local_rvol_artifact_audit",
+        lambda _command: result,
+    )
+    monkeypatch.setattr(
+        runner,
+        "render_local_rvol_artifact_audit_report",
+        lambda _command, _result: "failed artifact audit report",
+    )
+    monkeypatch.setattr(
+        runner,
+        "is_local_rvol_artifact_audit_success",
+        lambda _result: False,
+    )
+
+    exit_code = main(["--local-rvol-artifact-preflight", "manifest.json"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert output == "failed artifact audit report\n"
+
+
+def test_local_rvol_artifact_audit_conflicts_preserve_raw_order(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("artifact audit conflict should not load config"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_local_rvol_artifact_audit",
+        lambda _command: pytest.fail("artifact audit helper should not run"),
+    )
+
+    exit_code = main(
+        [
+            "--no-speak",
+            "--local-rvol-artifact-preflight",
+            "manifest.json",
+            "--loop",
+            "--speak",
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Market Sentry Local RVOL Artifact Preflight" in output
+    assert "Result: COMMAND_ERROR" in output
+    assert (
+        "Error: --local-rvol-artifact-preflight cannot be combined with: "
+        "--no-speak, --loop, --speak"
+    ) in output
+
+
+@pytest.mark.parametrize(
+    ("extra", "expected"),
+    [
+        (["--loop"], "--loop"),
+        (["--interval", "10"], "--interval"),
+        (["--interval=10"], "--interval"),
+        (["--live-readiness"], "--live-readiness"),
+        (["--relative-volume-configured"], "--relative-volume-configured"),
+        (["--speak"], "--speak"),
+        (["--no-speak"], "--no-speak"),
+        (["--local-json-preflight", "metadata.json"], "--local-json-preflight"),
+        (["--local-json-preflight-report", "report.txt"], "--local-json-preflight-report"),
+        (
+            ["--local-json-bundle-preflight", "metadata.json", "bundle.json"],
+            "--local-json-bundle-preflight",
+        ),
+        (
+            ["--local-json-bundle-preflight-report", "bundle-report.txt"],
+            "--local-json-bundle-preflight-report",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture", "seed.json", "meta.json", "bundle.json"],
+            "--manual-alpaca-rvol-capture",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-report", "report.txt"],
+            "--manual-alpaca-rvol-capture-report",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-confirm-live-data"],
+            "--manual-alpaca-rvol-capture-confirm-live-data",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-symbol", "RVOL"],
+            "--manual-alpaca-rvol-capture-symbol",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-historical-start", "2026-01-02T09:30:00Z"],
+            "--manual-alpaca-rvol-capture-historical-start",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-historical-end", "2026-01-21T10:00:00Z"],
+            "--manual-alpaca-rvol-capture-historical-end",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-historical-max-pages", "5"],
+            "--manual-alpaca-rvol-capture-historical-max-pages",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-current-start", "2026-01-31T09:30:00Z"],
+            "--manual-alpaca-rvol-capture-current-start",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-current-end", "2026-01-31T09:35:00Z"],
+            "--manual-alpaca-rvol-capture-current-end",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-current-max-pages", "5"],
+            "--manual-alpaca-rvol-capture-current-max-pages",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-current-session-id", "CURRENT-001"],
+            "--manual-alpaca-rvol-capture-current-session-id",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-bucket", "09:35"],
+            "--manual-alpaca-rvol-capture-bucket",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-cutoff", "2026-01-31T09:35:00Z"],
+            "--manual-alpaca-rvol-capture-cutoff",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-minimum-historical-sessions", "20"],
+            "--manual-alpaca-rvol-capture-minimum-historical-sessions",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-timeframe", "5Min"],
+            "--manual-alpaca-rvol-capture-timeframe",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-page-limit", "500"],
+            "--manual-alpaca-rvol-capture-page-limit",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-sort", "desc"],
+            "--manual-alpaca-rvol-capture-sort",
+        ),
+    ],
+)
+def test_local_rvol_artifact_audit_rejects_all_documented_conflicts(
+    monkeypatch,
+    capsys,
+    extra,
+    expected,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("artifact audit conflict should not load config"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_local_rvol_artifact_audit",
+        lambda _command: pytest.fail("artifact audit helper should not run"),
+    )
+
+    exit_code = main(_local_rvol_artifact_audit_argv(*extra))
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Market Sentry Local RVOL Artifact Preflight" in output
+    assert "Result: COMMAND_ERROR" in output
+    assert expected in output
+
+
+def test_session_seed_rejects_artifact_audit_with_phase_18b_ownership(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("seed/audit conflict should not load config"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_local_rvol_session_seed",
+        lambda _command: pytest.fail("seed helper should not run"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_local_rvol_artifact_audit",
+        lambda _command: pytest.fail("artifact audit helper should not run"),
+    )
+
+    exit_code = main(
+        [
+            "--local-rvol-session-seed",
+            "plan.json",
+            "metadata.json",
+            "--local-rvol-artifact-preflight",
+            "manifest.json",
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Market Sentry Local RVOL Session Seed" in output
+    assert "--local-rvol-artifact-preflight" in output
 
 
 @pytest.mark.parametrize(

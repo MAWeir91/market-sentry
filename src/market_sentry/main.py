@@ -33,6 +33,18 @@ from market_sentry.live_readiness import (
     LiveReadinessReport,
     evaluate_live_readiness,
 )
+from market_sentry.local_rvol_artifact_manifest_audit_cli import (
+    LOCAL_RVOL_ARTIFACT_AUDIT_EXPECTED_ERRORS,
+    LOCAL_RVOL_ARTIFACT_AUDIT_NOTE,
+    LocalRvolArtifactAuditCommandError,
+    LocalRvolArtifactAuditCommandRequest,
+    is_local_rvol_artifact_audit_success,
+    render_local_rvol_artifact_audit_command_error,
+    render_local_rvol_artifact_audit_error,
+    render_local_rvol_artifact_audit_report,
+    run_local_rvol_artifact_audit,
+    validate_local_rvol_artifact_audit_command,
+)
 from market_sentry.local_rvol_session_seed_cli import (
     LOCAL_RVOL_SESSION_SEED_EXPECTED_ERRORS,
     LocalRvolSessionSeedCommandError,
@@ -306,6 +318,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=None,
         metavar=("PLAN_PATH", "METADATA_OUTPUT_PATH"),
     )
+    parser.add_argument(
+        "--local-rvol-artifact-preflight",
+        type=Path,
+        default=None,
+        metavar="MANIFEST_PATH",
+    )
     speak_group = parser.add_mutually_exclusive_group()
     speak_group.add_argument("--speak", action="store_true", dest="speak")
     speak_group.add_argument("--no-speak", action="store_false", dest="speak")
@@ -323,6 +341,8 @@ def _has_local_json_preflight_arg(raw_argv: Sequence[str]) -> bool:
         or item.startswith("--manual-alpaca-rvol-capture=")
         or item == "--local-rvol-session-seed"
         or item.startswith("--local-rvol-session-seed=")
+        or item == "--local-rvol-artifact-preflight"
+        or item.startswith("--local-rvol-artifact-preflight=")
         for item in raw_argv
     )
 
@@ -424,6 +444,61 @@ def _seed_command_conflicts(
         "--manual-alpaca-rvol-capture-timeframe",
         "--manual-alpaca-rvol-capture-page-limit",
         "--manual-alpaca-rvol-capture-sort",
+        "--local-rvol-artifact-preflight",
+    }
+    conflicts: list[str] = []
+    seen: set[str] = set()
+    interval_conflicts = args.interval != DEFAULT_INTERVAL_SECONDS
+
+    for item in raw_argv:
+        conflict = None
+        if item in conflict_flags:
+            conflict = item
+        elif any(item.startswith(f"{flag}=") for flag in conflict_flags):
+            conflict = item.split("=", maxsplit=1)[0]
+        elif item == "--interval" or item.startswith("--interval="):
+            if interval_conflicts:
+                conflict = "--interval"
+
+        if conflict is not None and conflict not in seen:
+            conflicts.append(conflict)
+            seen.add(conflict)
+
+    return conflicts
+
+
+def _artifact_audit_conflicts(
+    raw_argv: Sequence[str],
+    args: argparse.Namespace,
+) -> list[str]:
+    conflict_flags = {
+        "--loop",
+        "--live-readiness",
+        "--relative-volume-configured",
+        "--speak",
+        "--no-speak",
+        "--local-json-preflight",
+        "--local-json-preflight-report",
+        "--local-json-bundle-preflight",
+        "--local-json-bundle-preflight-report",
+        "--manual-alpaca-rvol-capture",
+        "--manual-alpaca-rvol-capture-report",
+        "--manual-alpaca-rvol-capture-confirm-live-data",
+        "--manual-alpaca-rvol-capture-symbol",
+        "--manual-alpaca-rvol-capture-historical-start",
+        "--manual-alpaca-rvol-capture-historical-end",
+        "--manual-alpaca-rvol-capture-historical-max-pages",
+        "--manual-alpaca-rvol-capture-current-start",
+        "--manual-alpaca-rvol-capture-current-end",
+        "--manual-alpaca-rvol-capture-current-max-pages",
+        "--manual-alpaca-rvol-capture-current-session-id",
+        "--manual-alpaca-rvol-capture-bucket",
+        "--manual-alpaca-rvol-capture-cutoff",
+        "--manual-alpaca-rvol-capture-minimum-historical-sessions",
+        "--manual-alpaca-rvol-capture-timeframe",
+        "--manual-alpaca-rvol-capture-page-limit",
+        "--manual-alpaca-rvol-capture-sort",
+        "--local-rvol-session-seed",
     }
     conflicts: list[str] = []
     seen: set[str] = set()
@@ -658,6 +733,24 @@ def _render_local_rvol_session_seed_conflict_error(
     )
 
 
+def _render_local_rvol_artifact_audit_conflict_error(
+    command: LocalRvolArtifactAuditCommandRequest,
+    conflicts: Sequence[str],
+) -> str:
+    return "\n".join(
+        [
+            "Market Sentry Local RVOL Artifact Preflight",
+            f"Manifest Path: {command.manifest_path}",
+            "Result: COMMAND_ERROR",
+            (
+                "Error: --local-rvol-artifact-preflight cannot be combined with: "
+                f"{', '.join(conflicts)}"
+            ),
+            LOCAL_RVOL_ARTIFACT_AUDIT_NOTE,
+        ]
+    )
+
+
 def _render_local_json_bundle_report_same_metadata_error(
     metadata_path: Path,
     bundle_path: Path,
@@ -751,6 +844,14 @@ def _build_local_rvol_session_seed_command_request(
     return LocalRvolSessionSeedCommandRequest(
         plan_path=paths[0],
         metadata_output_path=paths[1],
+    )
+
+
+def _build_local_rvol_artifact_audit_command_request(
+    args: argparse.Namespace,
+) -> LocalRvolArtifactAuditCommandRequest:
+    return LocalRvolArtifactAuditCommandRequest(
+        manifest_path=args.local_rvol_artifact_preflight,
     )
 
 
@@ -861,6 +962,7 @@ def main(
     bundle_path = bundle_paths[1] if bundle_paths is not None else None
     manual_paths = args.manual_alpaca_rvol_capture
     seed_paths = args.local_rvol_session_seed
+    audit_path = args.local_rvol_artifact_preflight
 
     if seed_paths is not None:
         command = _build_local_rvol_session_seed_command_request(args)
@@ -881,6 +983,26 @@ def main(
 
         print(render_local_rvol_session_seed_success_report(command, result))
         return 0
+
+    if audit_path is not None:
+        command = _build_local_rvol_artifact_audit_command_request(args)
+        conflicts = _artifact_audit_conflicts(raw_argv, args)
+        if conflicts:
+            print(_render_local_rvol_artifact_audit_conflict_error(command, conflicts))
+            return 2
+
+        try:
+            validate_local_rvol_artifact_audit_command(command)
+            result = run_local_rvol_artifact_audit(command)
+        except LocalRvolArtifactAuditCommandError as exc:
+            print(render_local_rvol_artifact_audit_command_error(command, exc))
+            return 2
+        except LOCAL_RVOL_ARTIFACT_AUDIT_EXPECTED_ERRORS as exc:
+            print(render_local_rvol_artifact_audit_error(command, exc))
+            return 1
+
+        print(render_local_rvol_artifact_audit_report(command, result))
+        return 0 if is_local_rvol_artifact_audit_success(result) else 1
 
     if (
         args.local_json_preflight_report is not None

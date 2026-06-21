@@ -196,6 +196,14 @@ python -m market_sentry --local-json-bundle-preflight <METADATA_PATH> <BUNDLE_PA
 
 The metadata path is first and the historical RVOL bundle path is second. This command reads only those explicit local input paths and optionally writes only the explicit report path. It does not create parent directories, discover files, activate providers, scan candidates, call APIs, or play voice alerts. Use a report path distinct from both input paths. This is offline diagnostics only, not live analysis or trading behavior.
 
+Run an offline RVOL artifact audit with:
+
+```powershell
+python -m market_sentry --local-rvol-artifact-preflight C:\path\to\rvol-artifacts.json
+```
+
+This command preflights only the local metadata/bundle paths declared by the explicit manifest, reports per-artifact final RVOL when valid, and performs no config, API, provider, network, scanner, alert, or voice work. It does not refresh, discover, or infer data.
+
 Build an explicit RVOL session metadata seed with:
 
 ```json
