@@ -218,6 +218,14 @@ python -m market_sentry --local-rvol-artifact-manifest-write C:\path\to\rvol-art
 
 This offline command writes only the requested manifest output. It does not inspect artifact files, needs no API keys or `.env` file, and does not activate a live scan. Run `--local-rvol-artifact-preflight` immediately afterward to audit the manifest.
 
+Run one explicit one-shot live-composed workflow with:
+
+```powershell
+python -m market_sentry --one-shot-live-composed-workflow C:\path\to\workflow-plan.json --one-shot-live-composed-confirm-live-data
+```
+
+The workflow plan declares every metadata seed path, metadata output path, bundle output path, capture window, and manifest output path. This command requires locally configured live-data permission plus Alpaca and FMP keys, captures the declared RVOL artifacts, writes the declared manifest, audits it offline, then runs exactly one `live_composed` scanner report. It does not loop, infer market sessions, create directories, play voice alerts, write report files, place trades, or submit orders.
+
 Build an explicit RVOL session metadata seed with:
 
 ```json

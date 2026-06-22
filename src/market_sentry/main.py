@@ -78,6 +78,19 @@ from market_sentry.manual_explicit_alpaca_rvol_capture_preflight_cli import (
     run_manual_explicit_alpaca_rvol_capture_preflight,
     validate_manual_explicit_alpaca_rvol_capture_command,
 )
+from market_sentry.one_shot_live_composed_workflow_cli import (
+    ONE_SHOT_LIVE_COMPOSED_WORKFLOW_EXPECTED_ERRORS,
+    ONE_SHOT_LIVE_COMPOSED_WORKFLOW_NOTE,
+    OneShotLiveComposedWorkflowCommandError,
+    OneShotLiveComposedWorkflowCommandRequest,
+    render_one_shot_live_composed_workflow_command_error,
+    render_one_shot_live_composed_workflow_error,
+    render_one_shot_live_composed_workflow_report,
+    run_one_shot_live_composed_workflow,
+)
+from market_sentry.data.one_shot_live_composed_workflow_plan import (
+    OneShotLiveComposedWorkflowPlanError,
+)
 from market_sentry.local_json_bundle_preflight_cli import (
     MANUAL_LOCAL_JSON_BUNDLE_PREFLIGHT_EXPECTED_ERRORS,
     is_manual_local_json_bundle_preflight_success,
@@ -349,6 +362,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=None,
         metavar=("SYMBOL", "METADATA_PATH", "BUNDLE_PATH"),
     )
+    parser.add_argument(
+        "--one-shot-live-composed-workflow",
+        type=Path,
+        default=None,
+        metavar="PLAN_PATH",
+    )
+    parser.add_argument(
+        "--one-shot-live-composed-confirm-live-data",
+        action="store_true",
+    )
     speak_group = parser.add_mutually_exclusive_group()
     speak_group.add_argument("--speak", action="store_true", dest="speak")
     speak_group.add_argument("--no-speak", action="store_false", dest="speak")
@@ -372,6 +395,9 @@ def _has_local_json_preflight_arg(raw_argv: Sequence[str]) -> bool:
         or item.startswith("--local-rvol-artifact-manifest-write=")
         or item == "--local-rvol-artifact"
         or item.startswith("--local-rvol-artifact=")
+        or item == "--one-shot-live-composed-workflow"
+        or item.startswith("--one-shot-live-composed-workflow=")
+        or item == "--one-shot-live-composed-confirm-live-data"
         for item in raw_argv
     )
 
@@ -476,6 +502,8 @@ def _seed_command_conflicts(
         "--local-rvol-artifact-preflight",
         "--local-rvol-artifact-manifest-write",
         "--local-rvol-artifact",
+        "--one-shot-live-composed-workflow",
+        "--one-shot-live-composed-confirm-live-data",
     }
     conflicts: list[str] = []
     seen: set[str] = set()
@@ -532,6 +560,8 @@ def _artifact_audit_conflicts(
         "--local-rvol-session-seed",
         "--local-rvol-artifact-manifest-write",
         "--local-rvol-artifact",
+        "--one-shot-live-composed-workflow",
+        "--one-shot-live-composed-confirm-live-data",
     }
     conflicts: list[str] = []
     seen: set[str] = set()
@@ -587,6 +617,65 @@ def _artifact_manifest_writer_conflicts(
         "--manual-alpaca-rvol-capture-sort",
         "--local-rvol-session-seed",
         "--local-rvol-artifact-preflight",
+        "--one-shot-live-composed-workflow",
+        "--one-shot-live-composed-confirm-live-data",
+    }
+    conflicts: list[str] = []
+    seen: set[str] = set()
+    interval_conflicts = args.interval != DEFAULT_INTERVAL_SECONDS
+
+    for item in raw_argv:
+        conflict = None
+        if item in conflict_flags:
+            conflict = item
+        elif any(item.startswith(f"{flag}=") for flag in conflict_flags):
+            conflict = item.split("=", maxsplit=1)[0]
+        elif item == "--interval" or item.startswith("--interval="):
+            if interval_conflicts:
+                conflict = "--interval"
+
+        if conflict is not None and conflict not in seen:
+            conflicts.append(conflict)
+            seen.add(conflict)
+
+    return conflicts
+
+
+def _one_shot_live_composed_workflow_conflicts(
+    raw_argv: Sequence[str],
+    args: argparse.Namespace,
+) -> list[str]:
+    conflict_flags = {
+        "--loop",
+        "--live-readiness",
+        "--relative-volume-configured",
+        "--speak",
+        "--no-speak",
+        "--local-json-preflight",
+        "--local-json-preflight-report",
+        "--local-json-bundle-preflight",
+        "--local-json-bundle-preflight-report",
+        "--manual-alpaca-rvol-capture",
+        "--manual-alpaca-rvol-capture-report",
+        "--manual-alpaca-rvol-capture-confirm-live-data",
+        "--manual-alpaca-rvol-capture-symbol",
+        "--manual-alpaca-rvol-capture-historical-start",
+        "--manual-alpaca-rvol-capture-historical-end",
+        "--manual-alpaca-rvol-capture-historical-max-pages",
+        "--manual-alpaca-rvol-capture-current-start",
+        "--manual-alpaca-rvol-capture-current-end",
+        "--manual-alpaca-rvol-capture-current-max-pages",
+        "--manual-alpaca-rvol-capture-current-session-id",
+        "--manual-alpaca-rvol-capture-bucket",
+        "--manual-alpaca-rvol-capture-cutoff",
+        "--manual-alpaca-rvol-capture-minimum-historical-sessions",
+        "--manual-alpaca-rvol-capture-timeframe",
+        "--manual-alpaca-rvol-capture-page-limit",
+        "--manual-alpaca-rvol-capture-sort",
+        "--local-rvol-session-seed",
+        "--local-rvol-artifact-preflight",
+        "--local-rvol-artifact-manifest-write",
+        "--local-rvol-artifact",
     }
     conflicts: list[str] = []
     seen: set[str] = set()
@@ -858,6 +947,25 @@ def _render_local_rvol_artifact_manifest_writer_conflict_error(
     )
 
 
+def _render_one_shot_live_composed_workflow_conflict_error(
+    command: OneShotLiveComposedWorkflowCommandRequest,
+    conflicts: Sequence[str],
+) -> str:
+    return "\n".join(
+        [
+            "Market Sentry Explicit One-Shot Live-Composed Workflow",
+            f"Plan Path: {command.plan_path if command.plan_path is not None else 'N/A'}",
+            "Manifest Path: N/A",
+            "Result: COMMAND_ERROR",
+            (
+                "Error: --one-shot-live-composed-workflow cannot be combined with: "
+                f"{', '.join(conflicts)}"
+            ),
+            ONE_SHOT_LIVE_COMPOSED_WORKFLOW_NOTE,
+        ]
+    )
+
+
 def _render_local_json_bundle_report_same_metadata_error(
     metadata_path: Path,
     bundle_path: Path,
@@ -973,6 +1081,15 @@ def _build_local_rvol_artifact_manifest_writer_command_request(
     )
 
 
+def _build_one_shot_live_composed_workflow_command_request(
+    args: argparse.Namespace,
+) -> OneShotLiveComposedWorkflowCommandRequest:
+    return OneShotLiveComposedWorkflowCommandRequest(
+        plan_path=args.one_shot_live_composed_workflow,
+        confirm_live_data=args.one_shot_live_composed_confirm_live_data,
+    )
+
+
 def normalize_interval(interval_seconds: float) -> float:
     """Return an interval that respects the Phase 8 minimum."""
 
@@ -1024,6 +1141,16 @@ def _run_scan(
         speech_result = voice_speaker.speak(speak_alerts)
         if not speech_result.success and speech_result.error is not None:
             print(f"\n{speech_result.error}")
+
+
+def _render_one_shot_live_composed_scan_report(provider: MarketDataProvider) -> str:
+    candidates = provider.get_candidates()
+    results = ScannerEngine().scan(candidates)
+    return render_report(
+        results,
+        generate_alerts(results),
+        report_label=get_provider_display_label(LIVE_COMPOSED_PROVIDER),
+    )
 
 
 def run_loop(
@@ -1083,6 +1210,8 @@ def main(
     audit_path = args.local_rvol_artifact_preflight
     writer_path = args.local_rvol_artifact_manifest_write
     writer_artifacts = args.local_rvol_artifact
+    workflow_path = args.one_shot_live_composed_workflow
+    workflow_confirm = args.one_shot_live_composed_confirm_live_data
 
     if seed_paths is not None:
         command = _build_local_rvol_session_seed_command_request(args)
@@ -1166,6 +1295,49 @@ def main(
             )
         )
         return 0
+
+    if workflow_path is not None or workflow_confirm:
+        command = _build_one_shot_live_composed_workflow_command_request(args)
+        if workflow_path is None:
+            print(
+                render_one_shot_live_composed_workflow_command_error(
+                    command,
+                    OneShotLiveComposedWorkflowCommandError(
+                        "--one-shot-live-composed-confirm-live-data requires "
+                        "--one-shot-live-composed-workflow"
+                    ),
+                )
+            )
+            return 2
+        conflicts = _one_shot_live_composed_workflow_conflicts(raw_argv, args)
+        if conflicts:
+            print(
+                _render_one_shot_live_composed_workflow_conflict_error(
+                    command,
+                    conflicts,
+                )
+            )
+            return 2
+
+        try:
+            result = run_one_shot_live_composed_workflow(
+                command,
+                load_config_fn=load_config,
+                provider_factory=create_market_data_provider,
+                scan_reporter=_render_one_shot_live_composed_scan_report,
+            )
+        except (
+            OneShotLiveComposedWorkflowCommandError,
+            OneShotLiveComposedWorkflowPlanError,
+        ) as exc:
+            print(render_one_shot_live_composed_workflow_command_error(command, exc))
+            return 2
+        except ONE_SHOT_LIVE_COMPOSED_WORKFLOW_EXPECTED_ERRORS as exc:
+            print(render_one_shot_live_composed_workflow_error(command, exc))
+            return 1
+
+        print(render_one_shot_live_composed_workflow_report(command, result))
+        return 0 if result.status == "OK" else 1
 
     if (
         args.local_json_preflight_report is not None

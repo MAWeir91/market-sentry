@@ -430,6 +430,19 @@ def test_parse_args_supports_local_rvol_artifact_manifest_writer_values() -> Non
     ]
 
 
+def test_parse_args_supports_one_shot_live_composed_workflow_flags() -> None:
+    args = parse_args(
+        [
+            "--one-shot-live-composed-workflow",
+            "workflow.json",
+            "--one-shot-live-composed-confirm-live-data",
+        ]
+    )
+
+    assert args.one_shot_live_composed_workflow == Path("workflow.json")
+    assert args.one_shot_live_composed_confirm_live_data is True
+
+
 def test_parse_args_manual_alpaca_rvol_capture_defaults() -> None:
     args = parse_args([])
 
@@ -443,6 +456,8 @@ def test_parse_args_manual_alpaca_rvol_capture_defaults() -> None:
     assert args.local_rvol_artifact_preflight is None
     assert args.local_rvol_artifact_manifest_write is None
     assert args.local_rvol_artifact is None
+    assert args.one_shot_live_composed_workflow is None
+    assert args.one_shot_live_composed_confirm_live_data is False
 
 
 def test_parse_args_supports_live_readiness_flags() -> None:
@@ -515,6 +530,15 @@ def _local_rvol_artifact_manifest_writer_argv(*extra: str) -> list[str]:
         "AAPL",
         "aapl-meta.json",
         "aapl-bundle.json",
+        *extra,
+    ]
+
+
+def _one_shot_live_composed_workflow_argv(*extra: str) -> list[str]:
+    return [
+        "--one-shot-live-composed-workflow",
+        "workflow.json",
+        "--one-shot-live-composed-confirm-live-data",
         *extra,
     ]
 
@@ -1422,6 +1446,403 @@ def test_artifact_audit_owns_audit_and_manifest_writer_conflict(
     assert exit_code == 2
     assert "Market Sentry Local RVOL Artifact Preflight" in output
     assert "--local-rvol-artifact-manifest-write" in output
+
+
+def test_one_shot_live_composed_workflow_success_runs_before_existing_paths(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    result = SimpleNamespace(status="OK")
+    calls = []
+    monkeypatch.setattr(
+        runner,
+        "run_one_shot_live_composed_workflow",
+        lambda command, **kwargs: calls.append((command, kwargs)) or result,
+    )
+    monkeypatch.setattr(
+        runner,
+        "render_one_shot_live_composed_workflow_report",
+        lambda command, value: "workflow report",
+    )
+
+    exit_code = main(_one_shot_live_composed_workflow_argv())
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert output == "workflow report\n"
+    assert calls[0][0].plan_path == Path("workflow.json")
+    assert calls[0][0].confirm_live_data is True
+    assert calls[0][1]["load_config_fn"] is runner.load_config
+    assert calls[0][1]["provider_factory"] is runner.create_market_data_provider
+    assert calls[0][1]["scan_reporter"] is runner._render_one_shot_live_composed_scan_report
+
+
+def test_one_shot_live_composed_confirmation_only_dependency_error(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    monkeypatch.setattr(
+        runner,
+        "run_one_shot_live_composed_workflow",
+        lambda *_args, **_kwargs: pytest.fail("workflow helper should not run"),
+    )
+
+    exit_code = main(["--one-shot-live-composed-confirm-live-data"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Market Sentry Explicit One-Shot Live-Composed Workflow" in output
+    assert "requires --one-shot-live-composed-workflow" in output
+
+
+def test_one_shot_live_composed_missing_confirmation_exits_two_before_config(
+    monkeypatch,
+    capsys,
+) -> None:
+    _fail_if_runtime_work_runs(monkeypatch)
+
+    exit_code = main(["--one-shot-live-composed-workflow", "workflow.json"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "LIVE_DATA_CONFIRMATION_REQUIRED" in output
+
+
+def test_one_shot_live_composed_plan_error_exits_two(monkeypatch, capsys) -> None:
+    import market_sentry.main as runner
+
+    from market_sentry.data.one_shot_live_composed_workflow_plan import (
+        OneShotLiveComposedWorkflowPlanError,
+    )
+
+    monkeypatch.setattr(
+        runner,
+        "run_one_shot_live_composed_workflow",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            OneShotLiveComposedWorkflowPlanError("BAD_PLAN")
+        ),
+    )
+
+    exit_code = main(_one_shot_live_composed_workflow_argv())
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Result: COMMAND_ERROR" in output
+    assert "BAD_PLAN" in output
+
+
+def test_one_shot_live_composed_operational_error_exits_one(monkeypatch, capsys) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "run_one_shot_live_composed_workflow",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk unavailable")),
+    )
+
+    exit_code = main(_one_shot_live_composed_workflow_argv())
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Result: ERROR" in output
+    assert "Error Type: OSError" in output
+    assert "disk unavailable" in output
+
+
+def test_one_shot_live_composed_capture_command_error_exits_one_without_traceback(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+    from market_sentry.manual_explicit_alpaca_rvol_capture_preflight_cli import (
+        ManualExplicitAlpacaRvolCaptureCommandError,
+    )
+
+    monkeypatch.setattr(
+        runner,
+        "run_one_shot_live_composed_workflow",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ManualExplicitAlpacaRvolCaptureCommandError("INVALID_CUTOFF_TIMESTAMP")
+        ),
+    )
+
+    exit_code = main(_one_shot_live_composed_workflow_argv())
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert captured.err == ""
+    assert "Market Sentry Explicit One-Shot Live-Composed Workflow" in captured.out
+    assert "Result: ERROR" in captured.out
+    assert "ManualExplicitAlpacaRvolCaptureCommandError" in captured.out
+    assert "INVALID_CUTOFF_TIMESTAMP" in captured.out
+    assert "Traceback" not in captured.out
+
+
+def test_one_shot_live_composed_failed_result_exits_one(monkeypatch, capsys) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "run_one_shot_live_composed_workflow",
+        lambda *_args, **_kwargs: SimpleNamespace(status="FAILED"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "render_one_shot_live_composed_workflow_report",
+        lambda *_args: "workflow failed",
+    )
+
+    exit_code = main(_one_shot_live_composed_workflow_argv())
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert output == "workflow failed\n"
+
+
+def test_one_shot_live_composed_conflicts_preserve_raw_order(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    monkeypatch.setattr(
+        runner,
+        "run_one_shot_live_composed_workflow",
+        lambda *_args, **_kwargs: pytest.fail("workflow helper should not run"),
+    )
+
+    exit_code = main(
+        [
+            "--no-speak",
+            "--one-shot-live-composed-workflow",
+            "workflow.json",
+            "--loop",
+            "--one-shot-live-composed-confirm-live-data",
+            "--speak",
+            "--loop",
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Market Sentry Explicit One-Shot Live-Composed Workflow" in output
+    assert (
+        "Error: --one-shot-live-composed-workflow cannot be combined with: "
+        "--no-speak, --loop, --speak"
+    ) in output
+
+
+@pytest.mark.parametrize(
+    ("extra", "expected"),
+    [
+        (["--loop"], "--loop"),
+        (["--interval", "10"], "--interval"),
+        (["--interval=10"], "--interval"),
+        (["--live-readiness"], "--live-readiness"),
+        (["--relative-volume-configured"], "--relative-volume-configured"),
+        (["--speak"], "--speak"),
+        (["--no-speak"], "--no-speak"),
+        (["--local-json-preflight", "metadata.json"], "--local-json-preflight"),
+        (["--local-json-preflight-report", "report.txt"], "--local-json-preflight-report"),
+        (
+            ["--local-json-bundle-preflight", "metadata.json", "bundle.json"],
+            "--local-json-bundle-preflight",
+        ),
+        (
+            ["--local-json-bundle-preflight-report", "bundle-report.txt"],
+            "--local-json-bundle-preflight-report",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture", "seed.json", "meta.json", "bundle.json"],
+            "--manual-alpaca-rvol-capture",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-report", "report.txt"],
+            "--manual-alpaca-rvol-capture-report",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-confirm-live-data"],
+            "--manual-alpaca-rvol-capture-confirm-live-data",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-symbol", "RVOL"],
+            "--manual-alpaca-rvol-capture-symbol",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-historical-start", "2026-01-02T09:30:00Z"],
+            "--manual-alpaca-rvol-capture-historical-start",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-historical-end", "2026-01-21T10:00:00Z"],
+            "--manual-alpaca-rvol-capture-historical-end",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-historical-max-pages", "5"],
+            "--manual-alpaca-rvol-capture-historical-max-pages",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-current-start", "2026-01-31T09:30:00Z"],
+            "--manual-alpaca-rvol-capture-current-start",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-current-end", "2026-01-31T09:35:00Z"],
+            "--manual-alpaca-rvol-capture-current-end",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-current-max-pages", "5"],
+            "--manual-alpaca-rvol-capture-current-max-pages",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-current-session-id", "CURRENT-001"],
+            "--manual-alpaca-rvol-capture-current-session-id",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-bucket", "09:35"],
+            "--manual-alpaca-rvol-capture-bucket",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-cutoff", "2026-01-31T09:35:00Z"],
+            "--manual-alpaca-rvol-capture-cutoff",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-minimum-historical-sessions", "20"],
+            "--manual-alpaca-rvol-capture-minimum-historical-sessions",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-timeframe", "5Min"],
+            "--manual-alpaca-rvol-capture-timeframe",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-page-limit", "500"],
+            "--manual-alpaca-rvol-capture-page-limit",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-sort", "desc"],
+            "--manual-alpaca-rvol-capture-sort",
+        ),
+    ],
+)
+def test_one_shot_live_composed_rejects_documented_conflicts(
+    monkeypatch,
+    capsys,
+    extra,
+    expected,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    monkeypatch.setattr(
+        runner,
+        "run_one_shot_live_composed_workflow",
+        lambda *_args, **_kwargs: pytest.fail("workflow helper should not run"),
+    )
+
+    exit_code = main(_one_shot_live_composed_workflow_argv(*extra))
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Market Sentry Explicit One-Shot Live-Composed Workflow" in output
+    assert "Result: COMMAND_ERROR" in output
+    assert expected in output
+
+
+def test_session_seed_owns_seed_and_one_shot_workflow_conflict(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    monkeypatch.setattr(
+        runner,
+        "run_local_rvol_session_seed",
+        lambda _command: pytest.fail("seed helper should not run"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_one_shot_live_composed_workflow",
+        lambda *_args, **_kwargs: pytest.fail("workflow helper should not run"),
+    )
+
+    exit_code = main(
+        _local_rvol_session_seed_argv(
+            "--one-shot-live-composed-workflow",
+            "workflow.json",
+        )
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Market Sentry Local RVOL Session Seed" in output
+    assert "--one-shot-live-composed-workflow" in output
+
+
+def test_artifact_audit_owns_audit_and_one_shot_workflow_conflict(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    monkeypatch.setattr(
+        runner,
+        "run_local_rvol_artifact_audit",
+        lambda _command: pytest.fail("audit helper should not run"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_one_shot_live_composed_workflow",
+        lambda *_args, **_kwargs: pytest.fail("workflow helper should not run"),
+    )
+
+    exit_code = main(
+        _local_rvol_artifact_audit_argv(
+            "--one-shot-live-composed-workflow",
+            "workflow.json",
+        )
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Market Sentry Local RVOL Artifact Preflight" in output
+    assert "--one-shot-live-composed-workflow" in output
+
+
+def test_manifest_writer_owns_writer_and_one_shot_workflow_conflict(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    _fail_if_runtime_work_runs(monkeypatch)
+    monkeypatch.setattr(
+        runner,
+        "run_local_rvol_artifact_manifest_writer",
+        lambda _command: pytest.fail("writer helper should not run"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_one_shot_live_composed_workflow",
+        lambda *_args, **_kwargs: pytest.fail("workflow helper should not run"),
+    )
+
+    exit_code = main(
+        _local_rvol_artifact_manifest_writer_argv(
+            "--one-shot-live-composed-workflow",
+            "workflow.json",
+        )
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Market Sentry Local RVOL Artifact Manifest Writer" in output
+    assert "--one-shot-live-composed-workflow" in output
 
 
 @pytest.mark.parametrize(
