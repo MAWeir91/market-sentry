@@ -204,6 +204,20 @@ python -m market_sentry --local-rvol-artifact-preflight C:\path\to\rvol-artifact
 
 This command preflights only the local metadata/bundle paths declared by the explicit manifest, reports per-artifact final RVOL when valid, and performs no config, API, provider, network, scanner, alert, or voice work. It does not refresh, discover, or infer data.
 
+Build an explicit local RVOL artifact manifest with:
+
+```powershell
+python -m market_sentry --local-rvol-artifact-manifest-write C:\path\to\rvol-artifacts.json --local-rvol-artifact AAPL C:\path\to\aapl-metadata.json C:\path\to\aapl-bundle.json
+```
+
+For multiple symbols, repeat `--local-rvol-artifact` in the desired manifest order:
+
+```powershell
+python -m market_sentry --local-rvol-artifact-manifest-write C:\path\to\rvol-artifacts.json --local-rvol-artifact AAPL C:\path\to\aapl-metadata.json C:\path\to\aapl-bundle.json --local-rvol-artifact MSFT C:\path\to\msft-metadata.json C:\path\to\msft-bundle.json
+```
+
+This offline command writes only the requested manifest output. It does not inspect artifact files, needs no API keys or `.env` file, and does not activate a live scan. Run `--local-rvol-artifact-preflight` immediately afterward to audit the manifest.
+
 Build an explicit RVOL session metadata seed with:
 
 ```json

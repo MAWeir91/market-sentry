@@ -407,6 +407,29 @@ def test_parse_args_supports_local_rvol_artifact_preflight_path() -> None:
     assert args.local_rvol_artifact_preflight == Path("manifest.json")
 
 
+def test_parse_args_supports_local_rvol_artifact_manifest_writer_values() -> None:
+    args = parse_args(
+        [
+            "--local-rvol-artifact-manifest-write",
+            "manifest.json",
+            "--local-rvol-artifact",
+            "AAPL",
+            "aapl-meta.json",
+            "aapl-bundle.json",
+            "--local-rvol-artifact",
+            "MSFT",
+            "msft-meta.json",
+            "msft-bundle.json",
+        ]
+    )
+
+    assert args.local_rvol_artifact_manifest_write == Path("manifest.json")
+    assert args.local_rvol_artifact == [
+        ["AAPL", "aapl-meta.json", "aapl-bundle.json"],
+        ["MSFT", "msft-meta.json", "msft-bundle.json"],
+    ]
+
+
 def test_parse_args_manual_alpaca_rvol_capture_defaults() -> None:
     args = parse_args([])
 
@@ -418,6 +441,8 @@ def test_parse_args_manual_alpaca_rvol_capture_defaults() -> None:
     assert args.manual_alpaca_rvol_capture_sort == "asc"
     assert args.local_rvol_session_seed is None
     assert args.local_rvol_artifact_preflight is None
+    assert args.local_rvol_artifact_manifest_write is None
+    assert args.local_rvol_artifact is None
 
 
 def test_parse_args_supports_live_readiness_flags() -> None:
@@ -478,6 +503,18 @@ def _local_rvol_artifact_audit_argv(*extra: str) -> list[str]:
     return [
         "--local-rvol-artifact-preflight",
         "manifest.json",
+        *extra,
+    ]
+
+
+def _local_rvol_artifact_manifest_writer_argv(*extra: str) -> list[str]:
+    return [
+        "--local-rvol-artifact-manifest-write",
+        "manifest.json",
+        "--local-rvol-artifact",
+        "AAPL",
+        "aapl-meta.json",
+        "aapl-bundle.json",
         *extra,
     ]
 
@@ -958,6 +995,433 @@ def test_session_seed_rejects_artifact_audit_with_phase_18b_ownership(
     assert exit_code == 2
     assert "Market Sentry Local RVOL Session Seed" in output
     assert "--local-rvol-artifact-preflight" in output
+
+
+def test_local_rvol_artifact_manifest_writer_success_runs_before_config(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    result = object()
+    calls = []
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("manifest writer should not load config"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "create_market_data_provider",
+        lambda _config: pytest.fail("manifest writer should not create providers"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_run_scan",
+        lambda **_kwargs: pytest.fail("manifest writer should not scan"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "evaluate_live_readiness",
+        lambda *_args, **_kwargs: pytest.fail("manifest writer should not run readiness"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_local_rvol_artifact_manifest_writer",
+        lambda command: calls.append(command) or result,
+    )
+    monkeypatch.setattr(
+        runner,
+        "render_local_rvol_artifact_manifest_writer_success_report",
+        lambda command, value: "manifest writer report",
+    )
+
+    exit_code = main(
+        [
+            "--local-rvol-artifact-manifest-write",
+            "manifest.json",
+            "--local-rvol-artifact",
+            "AAPL",
+            "meta.json",
+            "bundle.json",
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert output == "manifest writer report\n"
+    assert calls[0].output_path == Path("manifest.json")
+    assert calls[0].artifact_declarations == (("AAPL", "meta.json", "bundle.json"),)
+
+
+def test_local_rvol_artifact_manifest_writer_only_artifact_dependency_error(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("manifest writer dependency error should not load config"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_local_rvol_artifact_manifest_writer",
+        lambda _command: pytest.fail("manifest writer helper should not run"),
+    )
+
+    exit_code = main(["--local-rvol-artifact", "AAPL", "meta.json", "bundle.json"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Market Sentry Local RVOL Artifact Manifest Writer" in output
+    assert "Result: COMMAND_ERROR" in output
+    assert (
+        "--local-rvol-artifact requires --local-rvol-artifact-manifest-write"
+        in output
+    )
+
+
+def test_local_rvol_artifact_manifest_writer_no_artifacts_error(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    import market_sentry.main as runner
+
+    output_path = tmp_path / "manifest.json"
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("manifest writer command error should not load config"),
+    )
+
+    exit_code = main(["--local-rvol-artifact-manifest-write", str(output_path)])
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "MISSING_ARTIFACTS" in output
+    assert not output_path.exists()
+
+
+@pytest.mark.parametrize(
+    ("argv_tail", "expected"),
+    [
+        (
+            ["--local-rvol-artifact", "AAPL", "same.json", "same.json"],
+            "SAME_ARTIFACT_PATH:AAPL",
+        ),
+        (
+            [
+                "--local-rvol-artifact",
+                "AAPL",
+                "a-meta.json",
+                "a-bundle.json",
+                "--local-rvol-artifact",
+                "aapl",
+                "b-meta.json",
+                "b-bundle.json",
+            ],
+            "DUPLICATE_SYMBOL:AAPL",
+        ),
+        (
+            ["--local-rvol-artifact", "AAPL", "manifest.json", "bundle.json"],
+            "OUTPUT_PATH_CONFLICT:AAPL",
+        ),
+    ],
+)
+def test_local_rvol_artifact_manifest_writer_validation_errors_write_nothing(
+    monkeypatch,
+    capsys,
+    tmp_path,
+    argv_tail,
+    expected,
+) -> None:
+    import market_sentry.main as runner
+
+    output_path = tmp_path / "manifest.json"
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("manifest writer validation error should not load config"),
+    )
+    tail = [
+        str(output_path) if item == "manifest.json" else item
+        for item in argv_tail
+    ]
+
+    exit_code = main(
+        [
+            "--local-rvol-artifact-manifest-write",
+            str(output_path),
+            *tail,
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert expected in output
+    assert not output_path.exists()
+
+
+def test_local_rvol_artifact_manifest_writer_os_error_is_operational(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("manifest writer OS error should not load config"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_local_rvol_artifact_manifest_writer",
+        lambda _command: (_ for _ in ()).throw(OSError("disk unavailable")),
+    )
+
+    exit_code = main(_local_rvol_artifact_manifest_writer_argv())
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Result: ERROR" in output
+    assert "Error Type: OSError" in output
+    assert "disk unavailable" in output
+
+
+def test_local_rvol_artifact_manifest_writer_conflicts_preserve_raw_order(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("manifest writer conflict should not load config"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_local_rvol_artifact_manifest_writer",
+        lambda _command: pytest.fail("manifest writer helper should not run"),
+    )
+
+    exit_code = main(
+        [
+            "--no-speak",
+            "--local-rvol-artifact-manifest-write",
+            "manifest.json",
+            "--local-rvol-artifact",
+            "AAPL",
+            "meta.json",
+            "bundle.json",
+            "--loop",
+            "--speak",
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Market Sentry Local RVOL Artifact Manifest Writer" in output
+    assert (
+        "Error: --local-rvol-artifact-manifest-write cannot be combined with: "
+        "--no-speak, --loop, --speak"
+    ) in output
+
+
+@pytest.mark.parametrize(
+    ("extra", "expected"),
+    [
+        (["--loop"], "--loop"),
+        (["--interval", "10"], "--interval"),
+        (["--interval=10"], "--interval"),
+        (["--live-readiness"], "--live-readiness"),
+        (["--relative-volume-configured"], "--relative-volume-configured"),
+        (["--speak"], "--speak"),
+        (["--no-speak"], "--no-speak"),
+        (["--local-json-preflight", "metadata.json"], "--local-json-preflight"),
+        (["--local-json-preflight-report", "report.txt"], "--local-json-preflight-report"),
+        (
+            ["--local-json-bundle-preflight", "metadata.json", "bundle.json"],
+            "--local-json-bundle-preflight",
+        ),
+        (
+            ["--local-json-bundle-preflight-report", "bundle-report.txt"],
+            "--local-json-bundle-preflight-report",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture", "seed.json", "meta.json", "bundle.json"],
+            "--manual-alpaca-rvol-capture",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-report", "report.txt"],
+            "--manual-alpaca-rvol-capture-report",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-confirm-live-data"],
+            "--manual-alpaca-rvol-capture-confirm-live-data",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-symbol", "RVOL"],
+            "--manual-alpaca-rvol-capture-symbol",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-historical-start", "2026-01-02T09:30:00Z"],
+            "--manual-alpaca-rvol-capture-historical-start",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-historical-end", "2026-01-21T10:00:00Z"],
+            "--manual-alpaca-rvol-capture-historical-end",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-historical-max-pages", "5"],
+            "--manual-alpaca-rvol-capture-historical-max-pages",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-current-start", "2026-01-31T09:30:00Z"],
+            "--manual-alpaca-rvol-capture-current-start",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-current-end", "2026-01-31T09:35:00Z"],
+            "--manual-alpaca-rvol-capture-current-end",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-current-max-pages", "5"],
+            "--manual-alpaca-rvol-capture-current-max-pages",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-current-session-id", "CURRENT-001"],
+            "--manual-alpaca-rvol-capture-current-session-id",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-bucket", "09:35"],
+            "--manual-alpaca-rvol-capture-bucket",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-cutoff", "2026-01-31T09:35:00Z"],
+            "--manual-alpaca-rvol-capture-cutoff",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-minimum-historical-sessions", "20"],
+            "--manual-alpaca-rvol-capture-minimum-historical-sessions",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-timeframe", "5Min"],
+            "--manual-alpaca-rvol-capture-timeframe",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-page-limit", "500"],
+            "--manual-alpaca-rvol-capture-page-limit",
+        ),
+        (
+            ["--manual-alpaca-rvol-capture-sort", "desc"],
+            "--manual-alpaca-rvol-capture-sort",
+        ),
+    ],
+)
+def test_local_rvol_artifact_manifest_writer_rejects_all_documented_conflicts(
+    monkeypatch,
+    capsys,
+    extra,
+    expected,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("manifest writer conflict should not load config"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_local_rvol_artifact_manifest_writer",
+        lambda _command: pytest.fail("manifest writer helper should not run"),
+    )
+
+    exit_code = main(_local_rvol_artifact_manifest_writer_argv(*extra))
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Market Sentry Local RVOL Artifact Manifest Writer" in output
+    assert "Result: COMMAND_ERROR" in output
+    assert expected in output
+
+
+def test_session_seed_owns_seed_and_manifest_writer_conflict(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("seed/writer conflict should not load config"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_local_rvol_session_seed",
+        lambda _command: pytest.fail("seed helper should not run"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_local_rvol_artifact_manifest_writer",
+        lambda _command: pytest.fail("manifest writer helper should not run"),
+    )
+
+    exit_code = main(
+        [
+            "--local-rvol-session-seed",
+            "plan.json",
+            "metadata.json",
+            "--local-rvol-artifact-manifest-write",
+            "manifest.json",
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Market Sentry Local RVOL Session Seed" in output
+    assert "--local-rvol-artifact-manifest-write" in output
+
+
+def test_artifact_audit_owns_audit_and_manifest_writer_conflict(
+    monkeypatch,
+    capsys,
+) -> None:
+    import market_sentry.main as runner
+
+    monkeypatch.setattr(
+        runner,
+        "load_config",
+        lambda: pytest.fail("audit/writer conflict should not load config"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_local_rvol_artifact_audit",
+        lambda _command: pytest.fail("audit helper should not run"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_local_rvol_artifact_manifest_writer",
+        lambda _command: pytest.fail("manifest writer helper should not run"),
+    )
+
+    exit_code = main(
+        [
+            "--local-rvol-artifact-preflight",
+            "audit-manifest.json",
+            "--local-rvol-artifact-manifest-write",
+            "manifest.json",
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 2
+    assert "Market Sentry Local RVOL Artifact Preflight" in output
+    assert "--local-rvol-artifact-manifest-write" in output
 
 
 @pytest.mark.parametrize(
